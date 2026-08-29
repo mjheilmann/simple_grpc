@@ -28,18 +28,37 @@ defmodule SimpleGrpc.Parser.Proto3.Core do
   end
 
   def full_ident do
-    ident() |> repeat(ignore(string(".")) |> concat(ident()))
+    ident()
+    |> repeat(string(".") |> concat(ident()))
+    |> reduce({Enum, :join, []})
+  end
+
+  def option_name do
+    custom_option_part =
+      string("(")
+      |> concat(space_or_comment())
+      |> concat(full_ident())
+      |> concat(space_or_comment())
+      |> concat(string(")"))
+
+    choice([
+      custom_option_part,
+      ident()
+    ])
+    |> repeat(
+      string(".")
+      |> concat(ident())
+    )
+    |> reduce({Enum, :join, []})
   end
 
   def option_statement do
     ignore(string("option"))
     |> concat(space_or_comment())
-    # Captures the option name (e.g., "go_package" or "deprecated")
-    |> concat(ident())
+    |> concat(option_name())
     |> concat(space_or_comment())
     |> ignore(string("="))
     |> concat(space_or_comment())
-    # Captures the string or boolean
     |> concat(option_value())
     |> concat(space_or_comment())
     |> ignore(string(";"))
@@ -47,16 +66,18 @@ defmodule SimpleGrpc.Parser.Proto3.Core do
   end
 
   def option_value do
-    quoted_string =
-      ignore(string("\""))
-      # Match 0 or more characters, as long as it isn't a double-quote character code (34)
-      |> utf8_string([not: ?"], min: 0)
-      |> ignore(string("\""))
+    str_lit =
+      choice([
+        ignore(string("\"")) |> utf8_string([not: ?"], min: 0) |> ignore(string("\"")),
+        ignore(string("'")) |> utf8_string([not: ?'], min: 0) |> ignore(string("'"))
+      ])
 
     choice([
-      quoted_string,
+      str_lit,
       string("true") |> replace(true),
-      string("false") |> replace(false)
+      string("false") |> replace(false),
+      integer(min: 1),
+      full_ident()
     ])
   end
 
