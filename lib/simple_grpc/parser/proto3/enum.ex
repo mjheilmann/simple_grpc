@@ -33,6 +33,8 @@ defmodule SimpleGrpc.Parser.Proto3.Enum do
     |> concat(Core.space_or_comment())
     |> concat(enum_value)
     |> concat(Core.space_or_comment())
+    |> optional(Core.field_options())
+    |> concat(Core.space_or_comment())
     |> ignore(string(";"))
     |> tag(:enum_field)
 
@@ -44,7 +46,10 @@ defmodule SimpleGrpc.Parser.Proto3.Enum do
     |> ignore(string("{"))
     |> concat(Core.space_or_comment())
     |> repeat(
-      enum_field
+      choice([
+        Core.option_statement(),
+        enum_field
+      ])
       |> concat(Core.space_or_comment())
     )
     |> ignore(string("}"))

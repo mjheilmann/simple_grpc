@@ -8,23 +8,6 @@ defmodule SimpleGrpc.Parser.Proto3.Message do
   primitive_types = Enum.map(@types, &string(Atom.to_string(&1)))
   field_type = choice(primitive_types ++ [Core.full_ident()])
 
-  # Helper to match: [deprecated = true]
-  field_options =
-    ignore(string("["))
-    |> concat(Core.space_or_comment())
-    |> ignore(string("deprecated"))
-    |> concat(Core.space_or_comment())
-    |> ignore(string("="))
-    |> concat(Core.space_or_comment())
-    |> choice([
-      string("true") |> replace(true),
-      string("false") |> replace(false)
-    ])
-    |> concat(Core.space_or_comment())
-    |> ignore(string("]"))
-    # Emits {:deprecated, [true]} if present
-    |> tag(:deprecated)
-
   # Standard fields: string name = 1;
   normal_field =
     field_type
@@ -35,7 +18,7 @@ defmodule SimpleGrpc.Parser.Proto3.Message do
     |> concat(Core.space_or_comment())
     |> integer(min: 1)
     |> concat(Core.space_or_comment())
-    |> optional(field_options)
+    |> optional(Core.field_options())
     |> concat(Core.space_or_comment())
     |> ignore(string(";"))
     |> tag(:field)
@@ -122,6 +105,7 @@ defmodule SimpleGrpc.Parser.Proto3.Message do
     |> concat(Core.space_or_comment())
     |> repeat(
       choice([
+        Core.option_statement(),
         normal_field,
         oneof_block,
         map_field,

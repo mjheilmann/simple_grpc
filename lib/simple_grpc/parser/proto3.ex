@@ -31,33 +31,6 @@ defmodule SimpleGrpc.Parser.Proto3 do
     |> concat(Core.space_or_comment())
     |> ignore(string(";"))
 
-  quoted_string =
-    ignore(string("\""))
-    # Match 0 or more characters, as long as it isn't a double-quote character code (34)
-    |> utf8_string([not: ?"], min: 0)
-    |> ignore(string("\""))
-
-  option_value =
-    choice([
-      quoted_string,
-      string("true") |> replace(true),
-      string("false") |> replace(false)
-    ])
-
-  option_statement =
-    ignore(string("option"))
-    |> concat(Core.space_or_comment())
-    # Captures the option name (e.g., "go_package" or "deprecated")
-    |> concat(Core.ident())
-    |> concat(Core.space_or_comment())
-    |> ignore(string("="))
-    |> concat(Core.space_or_comment())
-    # Captures the string or boolean
-    |> concat(option_value)
-    |> concat(Core.space_or_comment())
-    |> ignore(string(";"))
-    |> tag(:option)
-
   # 1. String Literals (e.g., "other.proto" or 'other.proto')
   # Matches content inside quotes and combines it into a single string
   str_lit =
@@ -96,7 +69,7 @@ defmodule SimpleGrpc.Parser.Proto3 do
     |> choice([
       syntax_stmt,
       package_stmt,
-      option_statement,
+      Core.option_statement(),
       import_stmt,
       parsec(:recurse_message),
       parsec(:recurse_service),

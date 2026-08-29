@@ -1,50 +1,9 @@
 defmodule SimpleGrpc.Parser.Proto3.Service do
   import NimbleParsec
   alias SimpleGrpc.Parser.Proto3.Core
+  alias SimpleGrpc.Parser.Proto3.RPC
 
-  stream_modifier =
-    optional(
-      string("stream")
-      |> concat(Core.space_or_comment())
-      |> replace(:stream)
-    )
-
-  # 1. Individual RPC Method parser
-  rpc_method =
-    ignore(string("rpc"))
-    |> concat(Core.space_or_comment())
-    # Method Name
-    |> concat(Core.ident())
-    |> concat(Core.space_or_comment())
-    |> ignore(string("("))
-    |> concat(Core.space_or_comment())
-
-    # NEW: Match streaming input
-    |> concat(stream_modifier)
-    # Input Type
-    |> concat(Core.full_ident())
-    |> concat(Core.space_or_comment())
-    |> ignore(string(")"))
-    |> concat(Core.space_or_comment())
-    |> ignore(string("returns"))
-    |> concat(Core.space_or_comment())
-    |> ignore(string("("))
-    |> concat(Core.space_or_comment())
-
-    # NEW: Match streaming output
-    |> concat(stream_modifier)
-    # Output Type
-    |> concat(Core.full_ident())
-    |> concat(Core.space_or_comment())
-    |> ignore(string(")"))
-    |> concat(Core.space_or_comment())
-    |> choice([
-      ignore(string(";")),
-      ignore(string("{")) |> concat(Core.space_or_comment()) |> ignore(string("}"))
-    ])
-    |> tag(:rpc)
-
-  # 2. Main Service block parser
+  # 2. Main Service block parser with service-level options
   service_combinator =
     ignore(string("service"))
     |> concat(Core.space_or_comment())
@@ -53,7 +12,10 @@ defmodule SimpleGrpc.Parser.Proto3.Service do
     |> ignore(string("{"))
     |> concat(Core.space_or_comment())
     |> repeat(
-      rpc_method
+      choice([
+        Core.option_statement(),
+        RPC.rpc_statement()
+      ])
       |> concat(Core.space_or_comment())
     )
     |> ignore(string("}"))
