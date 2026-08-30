@@ -7,7 +7,8 @@ defmodule SimpleGrpc.ServerTest do
     SampleNestedServer,
     SampleDeprecatedServer,
     SampleEmptyServer,
-    SampleCallbackServer
+    SampleGlobalServer,
+    SampleDelegatedServer
   }
 
   defmodule SampleEmptyServer do
@@ -17,59 +18,69 @@ defmodule SimpleGrpc.ServerTest do
 
   defmodule SampleEchoServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
-      handlers: [
-        echo: fn %{message: msg}, _stream ->
-          %{reply: "Echo: " <> msg}
-        end
-      ]
+      server_file: "priv/protos/custom_prefix/custom_prefix_service.proto"
+
+    # In-module handler callback
+    def echo(%{message: msg}, _stream) do
+      %{reply: "Echo: " <> msg}
+    end
   end
 
-  defmodule SampleCallbackServer do
+  defmodule SampleGlobalServer do
+    use SimpleGrpc.Server,
+      server_file: "priv/protos/global_service.proto"
+
+    # In-module handler with 1-arity
+    def global_method(%{data: data}) do
+      %{result: "Global: " <> data}
+    end
+  end
+
+  defmodule SampleDelegatedServer do
     use SimpleGrpc.Server,
       server_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
       handlers: [
-        echo: :handle_echo
+        echo: fn %{message: msg} -> %{reply: "Delegated: " <> msg} end
       ]
-
-    def handle_echo(%{message: msg}) do
-      %{reply: "Callback: " <> msg}
-    end
   end
 
   defmodule SampleStreamingServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto",
-      handlers: [
-        unary_call: fn req, _stream ->
-          %{result: "Processed: " <> req.message, sequence: req.sequence, is_final: true}
-        end,
-        server_streaming_call: fn req, _stream ->
-          [result: "Stream: " <> req.message, sequence: req.sequence, is_final: true]
-        end,
-        client_streaming_call: fn req, _stream ->
-          %{result: "ClientStream: " <> req.message, sequence: req.sequence, is_final: true}
-        end,
-        bidirectional_streaming_call: fn req, _stream ->
-          %{result: "Bidi: " <> req.message, sequence: req.sequence, is_final: true}
-        end
-      ]
+      server_file: "priv/protos/streaming/streaming_service.proto"
+
+    def unary_call(req, _stream) do
+      %{result: "Processed: " <> req.message, sequence: req.sequence, is_final: true}
+    end
+
+    def server_streaming_call(req, _stream) do
+      [result: "Stream: " <> req.message, sequence: req.sequence, is_final: true]
+    end
+
+    def client_streaming_call(req, _stream) do
+      %{result: "ClientStream: " <> req.message, sequence: req.sequence, is_final: true}
+    end
+
+    def bidirectional_streaming_call(req, _stream) do
+      %{result: "Bidi: " <> req.message, sequence: req.sequence, is_final: true}
+    end
   end
 
   defmodule SampleNestedServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/nested/nested_messages.proto",
-      handlers: [
-        process_nested: fn req, _ -> req end
-      ]
+      server_file: "priv/protos/nested/nested_messages.proto"
+
+    def process_nested(req, _stream) do
+      req
+    end
   end
 
   defmodule SampleDeprecatedServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/deprecated_fields/deprecated_fields.proto",
-      handlers: [
-        process: fn req, _ -> req end
-      ]
+      server_file: "priv/protos/deprecated_fields/deprecated_fields.proto"
+
+    def process(req, _stream) do
+      req
+    end
   end
 
   test "Server Compile fails when no service is present" do
@@ -92,37 +103,38 @@ defmodule SimpleGrpc.ServerTest do
     assert SampleEmptyServer.__messages__() == %{}
   end
 
-  test "Server Compile fails when handlers are missing entirely" do
+  test "Server Compile fails when in-module handler function is missing" do
     server = """
-    defmodule TestMissingAllHandlers do
+    defmodule TestMissingInModuleHandler do
       use SimpleGrpc.Server,
         server_file: "priv/protos/custom_prefix/custom_prefix_service.proto"
     end
     """
 
-    assert_raise ArgumentError, ~r/Missing handler for RPC call\(s\): "Echo"/, fn ->
+    assert_raise CompileError, ~r/Missing handler for RPC call\(s\): "Echo"/, fn ->
       Code.eval_string(server)
     end
   end
 
-  test "Server Compile fails when some handlers are missing" do
+  test "Server Compile fails when some in-module handlers are missing" do
     server = """
-    defmodule TestMissingSomeHandlers do
+    defmodule TestMissingSomeInModuleHandlers do
       use SimpleGrpc.Server,
-        server_file: "priv/protos/streaming/streaming_service.proto",
-        handlers: [
-          unary_call: fn req, _stream -> req end
-        ]
+        server_file: "priv/protos/streaming/streaming_service.proto"
+
+      def unary_call(req, _stream), do: req
     end
     """
 
-    assert_raise ArgumentError, ~r/Missing handler for RPC call\(s\): "ServerStreamingCall", "ClientStreamingCall", "BidirectionalStreamingCall"/, fn ->
+    assert_raise CompileError, ~r/Missing handler for RPC call\(s\): "ServerStreamingCall", "ClientStreamingCall", "BidirectionalStreamingCall"/, fn ->
       Code.eval_string(server)
     end
   end
 
-  test "Server Compile succeeds when handlers are provided with snake_case atoms" do
+  test "Server Compile succeeds with in-module handler callbacks" do
     assert SampleEchoServer.__service_name__() == "PrefixService"
+    assert SampleEchoServer.__grpc_package__() == "custom_prefix"
+    assert SampleEchoServer.__grpc_service_path__() == "/custom_prefix.PrefixService"
     assert length(SampleEchoServer.__rpcs__()) == 1
 
     [rpc] = SampleEchoServer.__rpcs__()
@@ -133,28 +145,32 @@ defmodule SimpleGrpc.ServerTest do
     assert rpc.response_stream == false
   end
 
-  test "Server Compile succeeds when handlers are provided with PascalCase atoms or map" do
-    server = """
-    defmodule TestPascalCaseHandlers do
-      use SimpleGrpc.Server,
-        server_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
-        handlers: [
-          Echo: fn req -> req end
-        ]
-    end
+  test "Server Compile succeeds with delegated opts handlers" do
+    assert SampleDelegatedServer.__service_name__() == "PrefixService"
+    response = SampleDelegatedServer.dispatch(:echo, %{message: "Test"})
+    assert response == %SampleDelegatedServer.EchoResponse{reply: "Delegated: Test"}
+  end
 
-    defmodule TestMapHandlers do
-      use SimpleGrpc.Server,
-        server_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
-        handlers: %{
-          "Echo" => fn req -> req end
-        }
-    end
-    """
+  test "Generates canonical gRPC paths and route matching metadata" do
+    # Package-scoped service path
+    assert SampleEchoServer.grpc_path(:echo) == "/custom_prefix.PrefixService/Echo"
+    assert SampleEchoServer.grpc_path("Echo") == "/custom_prefix.PrefixService/Echo"
+    assert SampleEchoServer.matches_path?("/custom_prefix.PrefixService/Echo") == true
+    assert SampleEchoServer.matches_path?("/custom_prefix.PrefixService/Unknown") == false
+    assert SampleEchoServer.matches_path?("/other.Service/Method") == false
 
-    Code.eval_string(server)
-    assert apply(TestPascalCaseHandlers, :__service_name__, []) == "PrefixService"
-    assert apply(TestMapHandlers, :__service_name__, []) == "PrefixService"
+    info = SampleEchoServer.route_info("/custom_prefix.PrefixService/Echo")
+    assert info.rpc_name == "Echo"
+    assert info.service == "PrefixService"
+    assert info.package == "custom_prefix"
+    assert info.input_module == SampleEchoServer.EchoRequest
+    assert info.output_module == SampleEchoServer.EchoResponse
+
+    assert SampleEchoServer.route_info("/non/existent/path") == nil
+
+    # Global service (no package)
+    assert SampleGlobalServer.grpc_path(:global_method) == "/GlobalService/GlobalMethod"
+    assert SampleGlobalServer.matches_path?("/GlobalService/GlobalMethod") == true
   end
 
   test "Generates message modules, structs, and constructors for input/output messages" do
@@ -251,20 +267,29 @@ defmodule SimpleGrpc.ServerTest do
     assert legacy_field.deprecated == true
   end
 
-  test "Dispatches RPC calls with plain maps, pattern matching, and response coercion" do
+  test "Dispatches RPC calls by RPC name and by canonical gRPC HTTP path" do
+    # Dispatch by atom RPC name
     response = SampleEchoServer.dispatch(:echo, %{message: "Hello World"})
     assert response == %SampleEchoServer.EchoResponse{reply: "Echo: Hello World"}
+
+    # Dispatch by string RPC name
+    response_str = SampleEchoServer.dispatch("Echo", %{message: "String RPC"})
+    assert response_str == %SampleEchoServer.EchoResponse{reply: "Echo: String RPC"}
+
+    # Dispatch by full gRPC HTTP path
+    response_path = SampleEchoServer.dispatch("/custom_prefix.PrefixService/Echo", %{message: "HTTP Path Call"})
+    assert response_path == %SampleEchoServer.EchoResponse{reply: "Echo: HTTP Path Call"}
 
     # Keyword list input
     response_kw = SampleEchoServer.dispatch("Echo", [message: "Keyword World"])
     assert response_kw == %SampleEchoServer.EchoResponse{reply: "Echo: Keyword World"}
 
-    # Callback function dispatch
-    callback_response = SampleCallbackServer.dispatch(:echo, %{message: "Callback Test"})
-    assert callback_response == %SampleCallbackServer.EchoResponse{reply: "Callback: Callback Test"}
+    # Global service dispatch
+    global_response = SampleGlobalServer.dispatch(:global_method, %{data: "Global Payload"})
+    assert global_response == %SampleGlobalServer.GlobalResponse{result: "Global: Global Payload"}
   end
 
-  test "Dispatches streaming service RPCs with map and keyword return values" do
+  test "Dispatches streaming service RPCs with in-module handlers" do
     unary_resp = SampleStreamingServer.dispatch(:unary_call, %{message: "test", sequence: 5})
     assert unary_resp == %SampleStreamingServer.StreamResponse{
              result: "Processed: test",
@@ -273,7 +298,7 @@ defmodule SimpleGrpc.ServerTest do
            }
 
     server_stream_resp =
-      SampleStreamingServer.dispatch(:server_streaming_call, %{message: "stream", sequence: 10})
+      SampleStreamingServer.dispatch("/streaming.StreamingService/ServerStreamingCall", %{message: "stream", sequence: 10})
 
     assert server_stream_resp == %SampleStreamingServer.StreamResponse{
              result: "Stream: stream",

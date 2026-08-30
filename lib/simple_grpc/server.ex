@@ -1,6 +1,7 @@
 defmodule SimpleGrpc.Server do
   @moduledoc """
-  Generates gRPC service implementation internals for the using module based on a `.proto` file.
+  Generates gRPC service implementation internals, in-module handler plumbing,
+  and HTTP route matching for the using module based on a `.proto` file.
   """
 
   alias SimpleGrpc.Server.RPC
@@ -14,6 +15,19 @@ defmodule SimpleGrpc.Server do
     {:proto3, default_service_name, ast} = SimpleGrpc.Parser.parse!(server_file)
 
     service_name = target_service || default_service_name
+
+    package =
+      Enum.find_value(ast, fn
+        {:package, pkg} when is_binary(pkg) -> pkg
+        _ -> nil
+      end)
+
+    service_prefix =
+      if package && package != "" do
+        "#{package}.#{service_name}"
+      else
+        service_name
+      end
 
     service_ast =
       Enum.find_value(ast, fn
@@ -34,20 +48,6 @@ defmodule SimpleGrpc.Server do
       |> Enum.map(&RPC.parse/1)
 
     handlers_ast = Keyword.get(opts, :handlers, [])
-    handler_keys = extract_handler_keys(handlers_ast)
-
-    missing_rpcs =
-      Enum.filter(rpcs, fn rpc ->
-        not has_handler?(handler_keys, rpc.name)
-      end)
-
-    if missing_rpcs != [] do
-      missing_names = Enum.map_join(missing_rpcs, ", ", &"\"#{&1.name}\"")
-
-      raise ArgumentError,
-            "Missing handler for RPC call(s): #{missing_names} in #{inspect(caller_module)}. " <>
-              "Please provide handlers in the :handlers option."
-    end
 
     needed_message_names =
       rpcs
@@ -80,24 +80,42 @@ defmodule SimpleGrpc.Server do
       end)
       |> Map.new()
 
-    # Build lookup maps for RPC inputs, outputs, and definitions
+    # Build canonical gRPC paths for each RPC
+    path_to_rpc =
+      Enum.map(rpcs, fn rpc ->
+        path = "/#{service_prefix}/#{rpc.name}"
+        {path, rpc.name}
+      end)
+      |> Map.new()
+
+    rpc_to_path =
+      Enum.flat_map(rpcs, fn rpc ->
+        path = "/#{service_prefix}/#{rpc.name}"
+        expand_rpc_key_mappings(rpc.name, path)
+      end)
+      |> Map.new()
+
+    # Build lookup maps for RPC inputs, outputs, and definitions (including paths)
     rpc_inputs =
       Enum.flat_map(rpcs, fn rpc ->
         mod = Map.get(messages_map, rpc.input, Module.concat(caller_module, rpc.input))
-        expand_rpc_key_mappings(rpc.name, mod)
+        path = "/#{service_prefix}/#{rpc.name}"
+        [{path, mod} | expand_rpc_key_mappings(rpc.name, mod)]
       end)
       |> Map.new()
 
     rpc_outputs =
       Enum.flat_map(rpcs, fn rpc ->
         mod = Map.get(messages_map, rpc.output, Module.concat(caller_module, rpc.output))
-        expand_rpc_key_mappings(rpc.name, mod)
+        path = "/#{service_prefix}/#{rpc.name}"
+        [{path, mod} | expand_rpc_key_mappings(rpc.name, mod)]
       end)
       |> Map.new()
 
     rpc_definitions =
       Enum.flat_map(rpcs, fn rpc ->
-        expand_rpc_key_mappings(rpc.name, rpc)
+        path = "/#{service_prefix}/#{rpc.name}"
+        [{path, rpc} | expand_rpc_key_mappings(rpc.name, rpc)]
       end)
       |> Map.new()
 
@@ -106,19 +124,78 @@ defmodule SimpleGrpc.Server do
     rpc_inputs_escaped = Macro.escape(rpc_inputs)
     rpc_outputs_escaped = Macro.escape(rpc_outputs)
     rpc_definitions_escaped = Macro.escape(rpc_definitions)
+    path_to_rpc_escaped = Macro.escape(path_to_rpc)
+    rpc_to_path_escaped = Macro.escape(rpc_to_path)
 
     quote do
       unquote_splicing(generated_modules_ast)
 
+      @before_compile SimpleGrpc.Server
+
+      @__grpc_rpcs__ unquote(rpcs_escaped)
+      @__grpc_opts_handlers__ unquote(handlers_ast)
+      @__grpc_package__ unquote(package)
+      @__grpc_service_prefix__ unquote(service_prefix)
+      @__grpc_service_path__ unquote("/" <> service_prefix)
+      @__grpc_paths__ unquote(rpc_to_path_escaped)
+      @__grpc_path_to_rpc__ unquote(path_to_rpc_escaped)
       @rpc_definitions unquote(rpc_definitions_escaped)
       @rpc_input_messages unquote(rpc_inputs_escaped)
       @rpc_output_messages unquote(rpc_outputs_escaped)
       @message_modules unquote(messages_map_escaped)
 
       def __service_name__, do: unquote(service_name)
+      def __grpc_package__, do: @__grpc_package__
+      def __grpc_service_path__, do: @__grpc_service_path__
+      def __grpc_paths__, do: @__grpc_paths__
       def __rpcs__, do: unquote(rpcs_escaped)
       def __handlers__, do: unquote(handlers_ast)
       def __messages__, do: unquote(messages_map_escaped)
+
+      @doc """
+      Returns the canonical gRPC HTTP path for the given RPC name.
+      """
+      def grpc_path(rpc_name) do
+        case SimpleGrpc.Server.lookup_map(@__grpc_paths__, rpc_name) do
+          nil ->
+            raise ArgumentError, "Unknown RPC #{inspect(rpc_name)} for #{inspect(__MODULE__)}"
+
+          path ->
+            path
+        end
+      end
+
+      @doc """
+      Returns true if the HTTP path matches any RPC path of this service.
+      """
+      def matches_path?(path) when is_binary(path) do
+        SimpleGrpc.Server.has_key?(@__grpc_path_to_rpc__, path)
+      end
+
+      @doc """
+      Returns routing information for the given HTTP path, or nil if unmatched.
+      """
+      def route_info(path) when is_binary(path) do
+        case SimpleGrpc.Server.lookup_map(@__grpc_path_to_rpc__, path) do
+          nil ->
+            nil
+
+          rpc_name ->
+            rpc = SimpleGrpc.Server.lookup_map(@rpc_definitions, path)
+            req_mod = SimpleGrpc.Server.lookup_map(@rpc_input_messages, path)
+            resp_mod = SimpleGrpc.Server.lookup_map(@rpc_output_messages, path)
+
+            %{
+              rpc: rpc,
+              rpc_name: rpc_name,
+              path: path,
+              service: __service_name__(),
+              package: __grpc_package__(),
+              input_module: req_mod,
+              output_module: resp_mod
+            }
+        end
+      end
 
       def build_request(rpc_or_msg, attrs \\ %{}) do
         case SimpleGrpc.Server.lookup_message_module(@rpc_input_messages, @message_modules, rpc_or_msg) do
@@ -140,24 +217,57 @@ defmodule SimpleGrpc.Server do
         end
       end
 
-      def dispatch(rpc_name, request_payload, stream \\ nil) do
+      def dispatch(rpc_or_path, request_payload, stream \\ nil) do
         rpc =
-          SimpleGrpc.Server.lookup_map(@rpc_definitions, rpc_name) ||
-            raise ArgumentError, "Unknown RPC call #{inspect(rpc_name)} in #{inspect(__MODULE__)}"
+          SimpleGrpc.Server.lookup_map(@rpc_definitions, rpc_or_path) ||
+            raise ArgumentError, "Unknown RPC call or path #{inspect(rpc_or_path)} in #{inspect(__MODULE__)}"
 
-        req_mod = SimpleGrpc.Server.fetch_rpc_module!(@rpc_input_messages, rpc_name, "input", __MODULE__)
-        resp_mod = SimpleGrpc.Server.fetch_rpc_module!(@rpc_output_messages, rpc_name, "output", __MODULE__)
+        req_mod = SimpleGrpc.Server.fetch_rpc_module!(@rpc_input_messages, rpc_or_path, "input", __MODULE__)
+        resp_mod = SimpleGrpc.Server.fetch_rpc_module!(@rpc_output_messages, rpc_or_path, "output", __MODULE__)
 
         req = req_mod.new(request_payload)
 
-        handler =
-          SimpleGrpc.Server.find_handler_in(__handlers__(), rpc.name) ||
-            raise ArgumentError, "No handler registered for RPC #{inspect(rpc.name)} in #{inspect(__MODULE__)}"
-
-        raw_resp = SimpleGrpc.Server.invoke_handler(handler, __MODULE__, req, stream)
+        raw_resp = SimpleGrpc.Server.dispatch_handler(__MODULE__, __handlers__(), rpc.name, req, stream)
         resp_mod.new(raw_resp)
       end
     end
+  end
+
+  defmacro __before_compile__(env) do
+    module = env.module
+    rpcs = Module.get_attribute(module, :__grpc_rpcs__) || []
+    opts_handlers = Module.get_attribute(module, :__grpc_opts_handlers__) || []
+    opts_keys = extract_handler_keys(opts_handlers)
+
+    missing_rpcs =
+      Enum.filter(rpcs, fn rpc ->
+        snake_atom = String.to_atom(Macro.underscore(rpc.name))
+        orig_atom = String.to_atom(rpc.name)
+
+        has_in_opts = has_handler?(opts_keys, rpc.name)
+
+        has_in_module =
+          Module.defines?(module, {snake_atom, 2}) or
+            Module.defines?(module, {snake_atom, 1}) or
+            Module.defines?(module, {orig_atom, 2}) or
+            Module.defines?(module, {orig_atom, 1})
+
+        not (has_in_opts or has_in_module)
+      end)
+
+    if missing_rpcs != [] do
+      missing_names = Enum.map_join(missing_rpcs, ", ", &"\"#{&1.name}\"")
+      example_func = Macro.underscore(hd(missing_rpcs).name)
+
+      raise CompileError,
+        description:
+          "Missing handler for RPC call(s): #{missing_names} in #{inspect(module)}. " <>
+            "Please define the in-module handler function (e.g. def #{example_func}(request, stream)) or provide a handler in the :handlers option.",
+        file: env.file,
+        line: env.line
+    end
+
+    nil
   end
 
   @doc """
@@ -165,6 +275,13 @@ defmodule SimpleGrpc.Server do
   """
   def lookup_map(map, key) when is_map(map) do
     Map.get(map, key)
+  end
+
+  @doc """
+  Checks if a key exists in a map, handling dynamic and empty map types cleanly.
+  """
+  def has_key?(map, key) when is_map(map) do
+    Map.has_key?(map, key)
   end
 
   @doc """
@@ -222,6 +339,41 @@ defmodule SimpleGrpc.Server do
 
       true ->
         nil
+    end
+  end
+
+  @doc """
+  Dispatches to either an in-module handler function or a configured opts handler.
+  """
+  def dispatch_handler(caller_module, handlers, rpc_name, req, stream) do
+    snake_atom = String.to_atom(Macro.underscore(rpc_name))
+    orig_atom = String.to_atom(rpc_name)
+
+    handler = find_handler_in(handlers, rpc_name)
+
+    cond do
+      # 1. Configured handler in opts (closure, atom, MFA)
+      not is_nil(handler) ->
+        invoke_handler(handler, caller_module, req, stream)
+
+      # 2. In-module snake_case function (arity 2)
+      function_exported?(caller_module, snake_atom, 2) ->
+        apply(caller_module, snake_atom, [req, stream])
+
+      # 3. In-module snake_case function (arity 1)
+      function_exported?(caller_module, snake_atom, 1) ->
+        apply(caller_module, snake_atom, [req])
+
+      # 4. In-module exact name function (arity 2)
+      function_exported?(caller_module, orig_atom, 2) ->
+        apply(caller_module, orig_atom, [req, stream])
+
+      # 5. In-module exact name function (arity 1)
+      function_exported?(caller_module, orig_atom, 1) ->
+        apply(caller_module, orig_atom, [req])
+
+      true ->
+        raise ArgumentError, "No handler registered for RPC #{inspect(rpc_name)} in #{inspect(caller_module)}"
     end
   end
 
