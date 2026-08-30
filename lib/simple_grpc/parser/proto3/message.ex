@@ -118,9 +118,9 @@ defmodule SimpleGrpc.Parser.Proto3.Message do
         normal_field,
         oneof_block,
         map_field,
-        # <-- Injected right here
         reserved_stmt,
-        parsec(:recurse_message)
+        parsec(:recurse_message),
+        parsec(:recurse_enum)
       ])
       |> concat(Core.space_or_comment())
     )
