@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package custom_prefix;
+
+// This proto demonstrates Elixir-specific custom module prefix option
+import "elixirpb.proto";
+option (elixirpb.file).module_prefix = "CustomizedPrefix";
+
+// Simple service to test custom module prefix generation
+service PrefixService {
+  rpc Echo (EchoRequest) returns (EchoResponse) {}
+}
+
+message EchoRequest {
+  string message = 1;
+}
+
+message EchoResponse {
+  string reply = 1;
+}

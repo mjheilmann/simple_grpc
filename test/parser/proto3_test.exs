@@ -4,7 +4,7 @@ defmodule SimpleGrpc.Parser.Proto3Test do
   @known_fields [:syntax, :package, :import, :service, :message, :enum, :option]
 
   defp parse_proto!(rel_path) do
-    path = Path.expand("../grpc-reflection/priv/protos/#{rel_path}", File.cwd!())
+    path = Path.expand("priv/protos/#{rel_path}", File.cwd!())
     contents = File.read!(path)
     {:ok, ast, "", %{}, _, _} = SimpleGrpc.Parser.Proto3.parse(contents)
     ast
