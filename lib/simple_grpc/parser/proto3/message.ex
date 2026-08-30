@@ -8,9 +8,18 @@ defmodule SimpleGrpc.Parser.Proto3.Message do
   primitive_types = Enum.map(@types, &string(Atom.to_string(&1)))
   field_type = choice(primitive_types ++ [Core.full_ident()])
 
+  # Field prefix modifiers: repeated, optional
+  field_prefix =
+    choice([
+      string("repeated") |> replace(:repeated),
+      string("optional") |> replace(:optional)
+    ])
+    |> unwrap_and_tag(:prefix)
+
   # Standard fields: string name = 1;
   normal_field =
-    field_type
+    optional(field_prefix |> concat(Core.space_or_comment()))
+    |> concat(field_type)
     |> concat(Core.space_or_comment())
     |> concat(Core.ident())
     |> concat(Core.space_or_comment())
