@@ -6,7 +6,8 @@ defmodule SimpleGrpc.ServerTest do
     SampleStreamingServer,
     SampleNestedServer,
     SampleDeprecatedServer,
-    SampleEmptyServer
+    SampleEmptyServer,
+    SampleCallbackServer
   }
 
   defmodule SampleEmptyServer do
@@ -18,18 +19,40 @@ defmodule SimpleGrpc.ServerTest do
     use SimpleGrpc.Server,
       server_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
       handlers: [
-        echo: fn req -> req end
+        echo: fn %{message: msg}, _stream ->
+          %{reply: "Echo: " <> msg}
+        end
       ]
+  end
+
+  defmodule SampleCallbackServer do
+    use SimpleGrpc.Server,
+      server_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
+      handlers: [
+        echo: :handle_echo
+      ]
+
+    def handle_echo(%{message: msg}) do
+      %{reply: "Callback: " <> msg}
+    end
   end
 
   defmodule SampleStreamingServer do
     use SimpleGrpc.Server,
       server_file: "priv/protos/streaming/streaming_service.proto",
       handlers: [
-        unary_call: fn req, _ -> req end,
-        server_streaming_call: fn req, _ -> req end,
-        client_streaming_call: fn req, _ -> req end,
-        bidirectional_streaming_call: fn req, _ -> req end
+        unary_call: fn req, _stream ->
+          %{result: "Processed: " <> req.message, sequence: req.sequence, is_final: true}
+        end,
+        server_streaming_call: fn req, _stream ->
+          [result: "Stream: " <> req.message, sequence: req.sequence, is_final: true]
+        end,
+        client_streaming_call: fn req, _stream ->
+          %{result: "ClientStream: " <> req.message, sequence: req.sequence, is_final: true}
+        end,
+        bidirectional_streaming_call: fn req, _stream ->
+          %{result: "Bidi: " <> req.message, sequence: req.sequence, is_final: true}
+        end
       ]
   end
 
@@ -226,5 +249,50 @@ defmodule SimpleGrpc.ServerTest do
 
     legacy_field = SampleDeprecatedServer.DeprecatedRequest.__field__(:legacy_field)
     assert legacy_field.deprecated == true
+  end
+
+  test "Dispatches RPC calls with plain maps, pattern matching, and response coercion" do
+    response = SampleEchoServer.dispatch(:echo, %{message: "Hello World"})
+    assert response == %SampleEchoServer.EchoResponse{reply: "Echo: Hello World"}
+
+    # Keyword list input
+    response_kw = SampleEchoServer.dispatch("Echo", [message: "Keyword World"])
+    assert response_kw == %SampleEchoServer.EchoResponse{reply: "Echo: Keyword World"}
+
+    # Callback function dispatch
+    callback_response = SampleCallbackServer.dispatch(:echo, %{message: "Callback Test"})
+    assert callback_response == %SampleCallbackServer.EchoResponse{reply: "Callback: Callback Test"}
+  end
+
+  test "Dispatches streaming service RPCs with map and keyword return values" do
+    unary_resp = SampleStreamingServer.dispatch(:unary_call, %{message: "test", sequence: 5})
+    assert unary_resp == %SampleStreamingServer.StreamResponse{
+             result: "Processed: test",
+             sequence: 5,
+             is_final: true
+           }
+
+    server_stream_resp =
+      SampleStreamingServer.dispatch(:server_streaming_call, %{message: "stream", sequence: 10})
+
+    assert server_stream_resp == %SampleStreamingServer.StreamResponse{
+             result: "Stream: stream",
+             sequence: 10,
+             is_final: true
+           }
+  end
+
+  test "build_request and build_response helpers populate defaults and validate fields" do
+    req = SampleEchoServer.build_request(:echo, %{message: "Ping"})
+    assert req == %SampleEchoServer.EchoRequest{message: "Ping"}
+
+    # Defaults populated
+    empty_resp = SampleEchoServer.build_response(:echo, %{})
+    assert empty_resp == %SampleEchoServer.EchoResponse{reply: ""}
+
+    # Unknown field raises ArgumentError
+    assert_raise ArgumentError, ~r/Unknown field\(s\) \[:non_existent\]/, fn ->
+      SampleEchoServer.build_request(:echo, %{non_existent: "error"})
+    end
   end
 end

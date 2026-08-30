@@ -113,7 +113,7 @@ defmodule SimpleGrpc.Server.Message do
         defstruct unquote(field_atoms)
 
         def new(attrs \\ %{}) do
-          struct(__MODULE__, attrs)
+          SimpleGrpc.Server.Coercer.coerce(attrs, __MODULE__)
         end
 
         def __message_name__, do: unquote(message_name)
