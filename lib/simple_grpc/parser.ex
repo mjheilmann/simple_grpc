@@ -1,14 +1,35 @@
 defmodule SimpleGrpc.Parser do
+  @moduledoc """
+  Parses proto files and returns the AST.
+  """
+
+  @doc """
+  Parses a proto file path and returns `{:ok, version, service_name, ast}` or `{:error, reason}`.
+  """
+  def parse(service_filepath) do
+    case File.read(service_filepath) do
+      {:ok, contents} ->
+        with {:ok, version} <- version(contents),
+             {:ok, service_name} <- service(contents),
+             {:ok, ast} <- parse_contents(version, contents) do
+          {:ok, version, service_name, ast}
+        end
+
+      {:error, reason} ->
+        {:error, "could not read file #{service_filepath}: #{:file.format_error(reason)}"}
+    end
+  end
+
+  @doc """
+  Parses a proto file path and returns `{version, service_name, ast}` or raises `ArgumentError`.
+  """
   def parse!(service_filepath) do
-    dirname = service_filepath |> Path.dirname() |> Path.expand()
-    IO.inspect(dirname)
+    case parse(service_filepath) do
+      {:ok, version, service_name, ast} ->
+        {version, service_name, ast}
 
-    contents = File.read!(service_filepath)
-
-    with {:ok, version} <- version(contents),
-         {:ok, service_name} <- service(contents),
-         {:ok, ast} <- parse(version, contents) do
-      {version, service_name, ast}
+      {:error, reason} ->
+        raise ArgumentError, "Failed to parse #{inspect(service_filepath)}: #{reason}"
     end
   end
 
@@ -26,14 +47,14 @@ defmodule SimpleGrpc.Parser do
     end
   end
 
-  defp parse(:proto3, contents) do
+  defp parse_contents(:proto3, contents) do
     case SimpleGrpc.Parser.Proto3.parse(contents) do
       {:ok, ast, "", %{}, _, _} ->
         {:ok, ast}
 
       err ->
-        IO.inspect(err, label: "parse error")
-        {:error, "could not parse file"}
+        {:error, "could not parse file: #{inspect(err)}"}
     end
   end
 end
+
