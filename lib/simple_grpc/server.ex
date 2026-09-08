@@ -127,11 +127,15 @@ defmodule SimpleGrpc.Server do
     path_to_rpc_escaped = Macro.escape(path_to_rpc)
     rpc_to_path_escaped = Macro.escape(rpc_to_path)
 
+    schema = SimpleGrpc.Schema.from_ast(ast)
+    schema_escaped = Macro.escape(schema)
+
     quote do
       unquote_splicing(generated_modules_ast)
 
       @before_compile SimpleGrpc.Server
 
+      @__schema__ unquote(schema_escaped)
       @__grpc_rpcs__ unquote(rpcs_escaped)
       @__grpc_opts_handlers__ unquote(handlers_ast)
       @__grpc_package__ unquote(package)
@@ -144,6 +148,7 @@ defmodule SimpleGrpc.Server do
       @rpc_output_messages unquote(rpc_outputs_escaped)
       @message_modules unquote(messages_map_escaped)
 
+      def __schema__, do: @__schema__
       def __service_name__, do: unquote(service_name)
       def __grpc_package__, do: @__grpc_package__
       def __grpc_service_path__, do: @__grpc_service_path__

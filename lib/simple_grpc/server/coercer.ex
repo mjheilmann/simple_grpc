@@ -4,7 +4,7 @@ defmodule SimpleGrpc.Server.Coercer do
   against protobuf message definitions, applying proto3 default values.
   """
 
-  alias SimpleGrpc.Server.Field
+  alias SimpleGrpc.Schema.Field
 
   @doc """
   Coerces `attrs` into a struct of `message_module`, validating fields and applying proto3 defaults.

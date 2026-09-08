@@ -1,0 +1,178 @@
+defmodule SimpleGrpc.Schema do
+  @moduledoc """
+  Represents a complete protobuf schema containing services, messages, and enums as runtime metadata.
+  """
+
+  alias SimpleGrpc.Schema.{Service, Message}
+  alias SimpleGrpc.Schema.Enum, as: SchemaEnum
+
+  defstruct [
+    :package,
+    syntax: :proto3,
+    services: %{},
+    messages: %{},
+    enums: %{},
+    options: %{}
+  ]
+
+  @type t :: %__MODULE__{
+          package: String.t() | nil,
+          syntax: atom(),
+          services: %{String.t() => Service.t()},
+          messages: %{String.t() => Message.t()},
+          enums: %{String.t() => SchemaEnum.t()},
+          options: map()
+        }
+
+  @doc """
+  Builds a Schema struct from a `.proto` file path.
+  """
+  def from_file(file_path) do
+    case SimpleGrpc.Parser.parse(file_path) do
+      {:ok, syntax, _default_service, ast} ->
+        {:ok, from_ast(ast, syntax: syntax)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Builds a Schema struct from a `.proto` file path or raises ArgumentError.
+  """
+  def from_file!(file_path) do
+    case from_file(file_path) do
+      {:ok, schema} -> schema
+      {:error, reason} -> raise ArgumentError, "Failed to load schema from #{inspect(file_path)}: #{reason}"
+    end
+  end
+
+  @doc """
+  Builds a Schema struct from a proto string.
+  """
+  def from_string(proto_string, opts \\ []) do
+    syntax = Keyword.get(opts, :syntax, :proto3)
+
+    case SimpleGrpc.Parser.Proto3.parse(proto_string) do
+      {:ok, ast, "", %{}, _, _} ->
+        {:ok, from_ast(ast, syntax: syntax)}
+
+      {:ok, _ast, rest, _, _, _} ->
+        {:error, "incomplete parse, remaining: #{inspect(rest)}"}
+
+      err ->
+        {:error, "failed to parse proto string: #{inspect(err)}"}
+    end
+  end
+
+  @doc """
+  Builds a Schema struct from a proto string or raises ArgumentError.
+  """
+  def from_string!(proto_string, opts \\ []) do
+    case from_string(proto_string, opts) do
+      {:ok, schema} -> schema
+      {:error, reason} -> raise ArgumentError, "Failed to parse schema: #{reason}"
+    end
+  end
+
+  @doc """
+  Builds a Schema struct from parser AST.
+  """
+  def from_ast(ast, opts \\ []) when is_list(ast) do
+    syntax = Keyword.get(opts, :syntax, :proto3)
+
+    package =
+      Enum.find_value(ast, fn
+        {:package, pkg} when is_binary(pkg) -> pkg
+        _ -> nil
+      end)
+
+    services =
+      ast
+      |> Enum.filter(fn
+        {:service, _} -> true
+        _ -> false
+      end)
+      |> Enum.map(fn s_ast ->
+        service = Service.parse(s_ast, package)
+        {service.name, service}
+      end)
+      |> Map.new()
+
+    messages =
+      ast
+      |> Enum.filter(fn
+        {:message, _} -> true
+        _ -> false
+      end)
+      |> Enum.map(fn m_ast ->
+        msg = Message.parse(m_ast)
+        full_name = if package && package != "", do: "#{package}.#{msg.name}", else: msg.name
+        msg = %{msg | full_name: full_name}
+        {msg.name, msg}
+      end)
+      |> Map.new()
+
+    enums =
+      ast
+      |> Enum.filter(fn
+        {:enum, _} -> true
+        _ -> false
+      end)
+      |> Enum.map(fn e_ast ->
+        enum = SchemaEnum.parse(e_ast)
+        {enum.name, enum}
+      end)
+      |> Map.new()
+
+    options =
+      Enum.reduce(ast, %{}, fn
+        {:option, [k, v]}, acc -> Map.put(acc, k, v)
+        _, acc -> acc
+      end)
+
+    %__MODULE__{
+      package: package,
+      syntax: syntax,
+      services: services,
+      messages: messages,
+      enums: enums,
+      options: options
+    }
+  end
+
+  @doc """
+  Finds a service by name or full name.
+  """
+  def service(%__MODULE__{services: services, package: package}, name) do
+    name_str = to_string(name)
+
+    Map.get(services, name_str) ||
+      (package && Map.get(services, String.replace_prefix(name_str, "#{package}.", ""))) ||
+      Enum.find_value(services, fn {_k, s} -> if s.full_name == name_str, do: s end)
+  end
+
+  @doc """
+  Finds a message by name or full name.
+  """
+  def message(%__MODULE__{messages: messages, package: package}, name) do
+    name_str = to_string(name)
+
+    Map.get(messages, name_str) ||
+      (package && Map.get(messages, String.replace_prefix(name_str, "#{package}.", ""))) ||
+      Enum.find_value(messages, fn {_k, m} -> if m.full_name == name_str, do: m end)
+  end
+
+  @doc """
+  Finds an RPC across all services in the schema by its gRPC path.
+  """
+  def find_rpc(%__MODULE__{services: services}, path) when is_binary(path) do
+    Enum.find_value(services, fn {_s_name, service} ->
+      Enum.find_value(service.rpcs, fn {_r_name, rpc} ->
+        if rpc.path == path do
+          {service, rpc}
+        end
+      end)
+    end)
+  end
+end

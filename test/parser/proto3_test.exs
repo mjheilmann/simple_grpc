@@ -95,8 +95,8 @@ defmodule SimpleGrpc.Parser.Proto3Test do
     assert_no_unhandled(ast, "streaming_service.proto")
   end
 
-  test "parses well_known_tyoes/well_known_types.proto" do
-    ast = parse_proto!("well_known_tyoes/well_known_types.proto")
+  test "parses well_known_types/well_known_types.proto" do
+    ast = parse_proto!("well_known_types/well_known_types.proto")
     assert_no_unhandled(ast, "well_known_types.proto")
   end
 end

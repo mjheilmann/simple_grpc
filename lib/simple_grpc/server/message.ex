@@ -3,97 +3,28 @@ defmodule SimpleGrpc.Server.Message do
   Represents a parsed protobuf message and generates the corresponding Elixir module AST.
   """
 
-  alias SimpleGrpc.Server.Field
+  alias SimpleGrpc.Schema.Message
 
   defstruct [
     :name,
+    :full_name,
     fields: [],
+    fields_by_number: %{},
+    fields_by_name: %{},
     nested_messages: [],
     nested_enums: [],
     options: %{}
   ]
 
-  @type t :: %__MODULE__{
-          name: String.t(),
-          fields: list(Field.t()),
-          nested_messages: list(t()),
-          nested_enums: list(map()),
-          options: map()
-        }
+  @type t :: Message.t()
 
-  @doc """
-  Parses a message AST node from the proto3 parser.
-  """
-  def parse({:message, items}) when is_list(items) do
-    parse(items)
-  end
-
-  def parse([name | items]) when is_binary(name) do
-    fields =
-      items
-      |> Enum.flat_map(fn
-        {:field, _} = f -> [Field.parse(f)]
-        {:map, _} = m -> [Field.parse(m)]
-        {:oneof, _} = o -> [Field.parse(o)]
-        _ -> []
-      end)
-
-    nested_messages =
-      items
-      |> Enum.filter(fn
-        {:message, _} -> true
-        _ -> false
-      end)
-      |> Enum.map(&parse/1)
-
-    nested_enums =
-      items
-      |> Enum.filter(fn
-        {:enum, _} -> true
-        _ -> false
-      end)
-      |> Enum.map(fn {:enum, [enum_name | enum_items]} ->
-        enum_fields =
-          Enum.flat_map(enum_items, fn
-            {:enum_field, [fname, fval | _]} -> [{String.to_atom(fname), fval}]
-            _ -> []
-          end)
-
-        %{name: enum_name, fields: enum_fields}
-      end)
-
-    options =
-      Enum.reduce(items, %{}, fn
-        {:option, [k, v]}, acc -> Map.put(acc, k, v)
-        _, acc -> acc
-      end)
-
-    %__MODULE__{
-      name: name,
-      fields: fields,
-      nested_messages: nested_messages,
-      nested_enums: nested_enums,
-      options: options
-    }
-  end
-
-  @doc """
-  Extracts struct field atom names for `defstruct`.
-  """
-  def struct_field_names(%__MODULE__{fields: fields}) do
-    Enum.flat_map(fields, fn
-      %Field{kind: :field, name: name} -> [name]
-      %Field{kind: :map, name: name} -> [name]
-      %Field{kind: :oneof, fields: oneof_fields} ->
-        Enum.map(oneof_fields, & &1.name)
-    end)
-    |> Enum.uniq()
-  end
+  defdelegate parse(ast), to: Message
+  defdelegate struct_field_names(msg), to: Message
 
   @doc """
   Generates the AST for a message module and all of its nested message submodules.
   """
-  def generate_module_ast(%__MODULE__{} = message, parent_module) do
+  def generate_module_ast(%Message{} = message, parent_module) do
     mod_name = Module.concat(parent_module, message.name)
     field_atoms = struct_field_names(message)
     fields_escaped = Macro.escape(message.fields)
@@ -120,10 +51,19 @@ defmodule SimpleGrpc.Server.Message do
 
         def __fields__, do: unquote(fields_escaped)
 
+        def __field_by_number__(number) when is_integer(number) do
+          Enum.find(__fields__(), fn
+            %SimpleGrpc.Schema.Field{number: ^number} -> true
+            %SimpleGrpc.Schema.Field{kind: :oneof, fields: oneof_fields} ->
+              Enum.any?(oneof_fields, &(&1.number == number))
+            _ -> false
+          end)
+        end
+
         def __field__(field_name) when is_atom(field_name) do
           Enum.find(__fields__(), fn
-            %SimpleGrpc.Server.Field{name: ^field_name} -> true
-            %SimpleGrpc.Server.Field{kind: :oneof, fields: oneof_fields} ->
+            %{name: ^field_name} -> true
+            %{kind: :oneof, fields: oneof_fields} ->
               Enum.any?(oneof_fields, &(&1.name == field_name))
             _ -> false
           end)
