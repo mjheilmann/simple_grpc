@@ -65,7 +65,7 @@ defmodule SimpleGrpc.GrpcurlTest do
     grpcurl: grpcurl
   } do
     # 1. Register a new service dynamically at runtime
-    schema = Schema.from_file!(@proto_file)
+    {:ok, schema} = Schema.from_file(@proto_file)
 
     SimpleGrpc.register_service(schema, %{
       unary_call: fn %{message: m, sequence: s} ->

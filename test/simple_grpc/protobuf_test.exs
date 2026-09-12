@@ -43,7 +43,7 @@ defmodule SimpleGrpc.ProtobufTest do
 
   describe "Encoding and Decoding using Message Descriptors" do
     setup do
-      schema = Schema.from_file!("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, schema} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
       req_msg = Schema.message(schema, "EchoRequest")
       resp_msg = Schema.message(schema, "EchoResponse")
       %{schema: schema, req_msg: req_msg, resp_msg: resp_msg}

@@ -4,9 +4,9 @@ defmodule SimpleGrpc.SchemaTest do
   alias SimpleGrpc.Schema
   alias SimpleGrpc.Schema.{Service, Message, RPC, Field}
 
-  describe "from_file/1 and from_file!/1" do
+  describe "from_file/1" do
     test "loads schema from custom_prefix_service.proto" do
-      schema = Schema.from_file!("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, schema} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
 
       assert schema.package == "custom_prefix"
       assert schema.syntax == :proto3
@@ -34,7 +34,7 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "loads schema with streaming rpcs" do
-      schema = Schema.from_file!("priv/protos/streaming/streaming_service.proto")
+      {:ok, schema} = Schema.from_file("priv/protos/streaming/streaming_service.proto")
       service = Schema.service(schema, "StreamingService")
 
       assert service.rpcs["UnaryCall"].request_stream == false
@@ -51,7 +51,7 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "loads schema with nested messages and enums" do
-      schema = Schema.from_file!("priv/protos/nested/nested_messages.proto")
+      {:ok, schema} = Schema.from_file("priv/protos/nested/nested_messages.proto")
       outer_msg = Schema.message(schema, "OuterMessage")
       assert length(outer_msg.nested_messages) > 0
 
@@ -60,7 +60,7 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "find_rpc finds RPC by exact gRPC path" do
-      schema = Schema.from_file!("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, schema} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
       {service, rpc} = Schema.find_rpc(schema, "/custom_prefix.PrefixService/Echo")
 
       assert service.name == "PrefixService"
@@ -68,7 +68,7 @@ defmodule SimpleGrpc.SchemaTest do
     end
   end
 
-  describe "from_string/1 and from_string!/1" do
+  describe "from_string/1" do
     test "parses schema from raw protobuf string" do
       proto = """
       syntax = "proto3";
@@ -88,7 +88,7 @@ defmodule SimpleGrpc.SchemaTest do
       }
       """
 
-      schema = Schema.from_string!(proto)
+      {:ok, schema} = Schema.from_string(proto)
 
       assert schema.package == "test_pkg"
       assert Map.has_key?(schema.services, "Greeter")

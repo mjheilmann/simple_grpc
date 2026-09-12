@@ -38,19 +38,6 @@ defmodule SimpleGrpc.Schema do
   end
 
   @doc """
-  Builds a Schema struct from a `.proto` file path or raises ArgumentError.
-  """
-  def from_file!(file_path) do
-    case from_file(file_path) do
-      {:ok, schema} ->
-        schema
-
-      {:error, reason} ->
-        raise ArgumentError, "Failed to load schema from #{inspect(file_path)}: #{reason}"
-    end
-  end
-
-  @doc """
   Builds a Schema struct from a proto string.
   """
   def from_string(proto_string, opts \\ []) do
@@ -68,15 +55,6 @@ defmodule SimpleGrpc.Schema do
     end
   end
 
-  @doc """
-  Builds a Schema struct from a proto string or raises ArgumentError.
-  """
-  def from_string!(proto_string, opts \\ []) do
-    case from_string(proto_string, opts) do
-      {:ok, schema} -> schema
-      {:error, reason} -> raise ArgumentError, "Failed to parse schema: #{reason}"
-    end
-  end
 
   @doc """
   Builds a Schema struct from parser AST.
