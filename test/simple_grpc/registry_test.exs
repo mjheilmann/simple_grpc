@@ -43,7 +43,10 @@ defmodule SimpleGrpc.RegistryTest do
       assert resp_v1.reply == "v1: test"
 
       # Replace handler dynamically
-      Registry.register_rpc(path, %{route_v1 | handler: fn %{message: m} -> %{reply: "v2: " <> m} end})
+      Registry.register_rpc(path, %{
+        route_v1
+        | handler: fn %{message: m} -> %{reply: "v2: " <> m} end
+      })
 
       {:ok, route_v2} = Registry.lookup_route(path)
       {:ok, resp_v2} = Dispatcher.dispatch(route_v2, %{message: "test"})
@@ -73,13 +76,15 @@ defmodule SimpleGrpc.RegistryTest do
       assert {:error, 5, "Not found in database"} = Dispatcher.dispatch(route, %{})
     end
 
-    test "catches raised exceptions and maps to gRPC status 2 (UNKNOWN)" do
+    test "raises exceptions — caught at the Plug boundary, not the Dispatcher" do
       route = %{
         handler: fn _req -> raise "Something went wrong" end,
         rpc_name: "Echo"
       }
 
-      assert {:error, 2, "Something went wrong"} = Dispatcher.dispatch(route, %{})
+      assert_raise RuntimeError, "Something went wrong", fn ->
+        Dispatcher.dispatch(route, %{})
+      end
     end
   end
 end

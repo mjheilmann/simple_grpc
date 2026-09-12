@@ -53,19 +53,27 @@ defmodule SimpleGrpc.Server.Message do
 
         def __field_by_number__(number) when is_integer(number) do
           Enum.find(__fields__(), fn
-            %SimpleGrpc.Schema.Field{number: ^number} -> true
+            %SimpleGrpc.Schema.Field{number: ^number} ->
+              true
+
             %SimpleGrpc.Schema.Field{kind: :oneof, fields: oneof_fields} ->
               Enum.any?(oneof_fields, &(&1.number == number))
-            _ -> false
+
+            _ ->
+              false
           end)
         end
 
         def __field__(field_name) when is_atom(field_name) do
           Enum.find(__fields__(), fn
-            %{name: ^field_name} -> true
+            %{name: ^field_name} ->
+              true
+
             %{kind: :oneof, fields: oneof_fields} ->
               Enum.any?(oneof_fields, &(&1.name == field_name))
-            _ -> false
+
+            _ ->
+              false
           end)
         end
 

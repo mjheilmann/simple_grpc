@@ -42,6 +42,18 @@ defmodule SimpleGrpc.Plug do
       {:error, reason} ->
         send_trailers_only(conn, 2, inspect(reason))
     end
+  rescue
+    e in ArgumentError ->
+      send_trailers_only(conn, 3, Exception.message(e))
+
+    e ->
+      send_trailers_only(conn, 2, Exception.message(e))
+  catch
+    :throw, reason ->
+      send_trailers_only(conn, 2, inspect(reason))
+
+    :exit, reason ->
+      send_trailers_only(conn, 2, inspect(reason))
   end
 
   defp send_grpc_response(conn, framed_response, status_code, status_message) do
@@ -51,7 +63,10 @@ defmodule SimpleGrpc.Plug do
     ]
 
     case conn.adapter do
-      {Bandit.Adapter, %Bandit.Adapter{transport: %Bandit.HTTP2.Stream{connection_pid: conn_pid, stream_id: stream_id}}} ->
+      {Bandit.Adapter,
+       %Bandit.Adapter{
+         transport: %Bandit.HTTP2.Stream{connection_pid: conn_pid, stream_id: stream_id}
+       }} ->
         conn =
           conn
           |> put_resp_header("content-type", "application/grpc")
@@ -97,7 +112,9 @@ defmodule SimpleGrpc.Plug do
   @doc """
   Unframes a 5-byte length-prefixed gRPC message.
   """
-  def unframe_grpc_message(<<_compressed::8, length::32-big, data::binary-size(length), _rest::binary>>) do
+  def unframe_grpc_message(
+        <<_compressed::8, length::32-big, data::binary-size(length), _rest::binary>>
+      ) do
     {:ok, data}
   end
 

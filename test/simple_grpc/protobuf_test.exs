@@ -158,7 +158,13 @@ defmodule SimpleGrpc.ProtobufTest do
           %Field{name: :attributes, number: 1, key_type: "string", val_type: "string", kind: :map}
         ],
         fields_by_number: %{
-          1 => %Field{name: :attributes, number: 1, key_type: "string", val_type: "string", kind: :map}
+          1 => %Field{
+            name: :attributes,
+            number: 1,
+            key_type: "string",
+            val_type: "string",
+            kind: :map
+          }
         }
       }
 

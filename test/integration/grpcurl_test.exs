@@ -11,7 +11,7 @@ defmodule SimpleGrpc.GrpcurlTest do
       server_file: "priv/protos/streaming/streaming_service.proto"
 
     def unary_call(%{message: msg, sequence: seq}, _stream) do
-      %{result: "Processed: " <> msg, sequence: seq + 1, is_final: true}
+      {:ok, %{result: "Processed: " <> msg, sequence: seq + 1, is_final: true}}
     end
 
     def server_streaming_call(req, _stream), do: req
@@ -48,8 +48,10 @@ defmodule SimpleGrpc.GrpcurlTest do
     {output, 0} =
       System.cmd(grpcurl, [
         "-plaintext",
-        "-proto", @proto_file,
-        "-d", ~s({"message": "Hello from grpcurl!", "sequence": 10}),
+        "-proto",
+        @proto_file,
+        "-d",
+        ~s({"message": "Hello from grpcurl!", "sequence": 10}),
         "127.0.0.1:#{@port}",
         "streaming.StreamingService/UnaryCall"
       ])
@@ -59,21 +61,25 @@ defmodule SimpleGrpc.GrpcurlTest do
     assert output =~ ~s("isFinal": true)
   end
 
-  test "grpcurl calls dynamically registered service and supports runtime hot-replacement", %{grpcurl: grpcurl} do
+  test "grpcurl calls dynamically registered service and supports runtime hot-replacement", %{
+    grpcurl: grpcurl
+  } do
     # 1. Register a new service dynamically at runtime
     schema = Schema.from_file!(@proto_file)
 
     SimpleGrpc.register_service(schema, %{
       unary_call: fn %{message: m, sequence: s} ->
-        %{result: "dynamic_v1: " <> m, sequence: s * 2, is_final: true}
+        {:ok, %{result: "dynamic_v1: " <> m, sequence: s * 2, is_final: true}}
       end
     })
 
     {output1, 0} =
       System.cmd(grpcurl, [
         "-plaintext",
-        "-proto", @proto_file,
-        "-d", ~s({"message": "Runtime Test", "sequence": 5}),
+        "-proto",
+        @proto_file,
+        "-d",
+        ~s({"message": "Runtime Test", "sequence": 5}),
         "127.0.0.1:#{@port}",
         "streaming.StreamingService/UnaryCall"
       ])
@@ -95,8 +101,10 @@ defmodule SimpleGrpc.GrpcurlTest do
     {output2, 0} =
       System.cmd(grpcurl, [
         "-plaintext",
-        "-proto", @proto_file,
-        "-d", ~s({"message": "Runtime Test", "sequence": 5}),
+        "-proto",
+        @proto_file,
+        "-d",
+        ~s({"message": "Runtime Test", "sequence": 5}),
         "127.0.0.1:#{@port}",
         "streaming.StreamingService/UnaryCall"
       ])

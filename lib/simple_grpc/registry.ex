@@ -21,38 +21,63 @@ defmodule SimpleGrpc.Registry do
   - A single function `fn (rpc_name, req, stream) -> resp end` or `fn (req, stream) -> resp end`
   """
   def register_service(%Schema{} = schema, handlers) do
-    routes =
-      Enum.flat_map(schema.services, fn {_s_name, %Service{} = service} ->
-        Enum.map(service.rpcs, fn {_r_name, %RPC{} = rpc} ->
-          input_msg = Schema.message(schema, rpc.input)
-          output_msg = Schema.message(schema, rpc.output)
-          handler = resolve_rpc_handler(handlers, rpc.name)
-
-          route = %{
-            service_name: service.name,
-            service_full_name: service.full_name,
-            package: service.package,
-            rpc_name: rpc.name,
-            path: rpc.path,
-            input_type: rpc.input,
-            output_type: rpc.output,
-            input_message: input_msg,
-            output_message: output_msg,
-            request_stream: rpc.request_stream,
-            response_stream: rpc.response_stream,
-            schema: schema,
-            handler: handler
-          }
-
-          {rpc.path, route}
-        end)
-      end)
-      |> Map.new()
+    {:ok, routes} = generate_routes(schema, handlers)
 
     current_routes = get_all_routes()
     new_routes = Map.merge(current_routes, routes)
     put_all_routes(new_routes)
     {:ok, Map.keys(routes)}
+  end
+
+  defp generate_routes(schema, handlers) do
+    Enum.reduce_while(schema.services, [], fn {_s_name, %Service{} = service}, acc ->
+      case map_service(service, schema, handlers) do
+        {:ok, list} -> {:cont, [list | acc]}
+        {:error, reason} -> {:halt, :error, reason}
+      end
+    end)
+    |> case do
+      {:error, reason} -> {:error, reason}
+      routes -> {:ok, routes |> List.flatten() |> Map.new()}
+    end
+  end
+
+  defp map_service(%Service{} = service, schema, handlers) do
+    service.rpcs
+    |> Enum.reduce_while([], fn {_r_name, %RPC{} = rpc}, acc ->
+      case generate_route(schema, rpc, handlers, service) do
+        {:ok, route} -> {:cont, [{rpc.path, route} | acc]}
+        {:error, reason} -> {:halt, :error, reason}
+      end
+    end)
+    |> case do
+      {:error, reason} -> {:error, reason}
+      list -> {:ok, list}
+    end
+  end
+
+  defp generate_route(schema, rpc, handlers, service) do
+    with {:ok, handler} <- resolve_rpc_handler(handlers, rpc.name) do
+      input_msg = Schema.message(schema, rpc.input)
+      output_msg = Schema.message(schema, rpc.output)
+
+      {:ok,
+       %{
+         service_name: service.name,
+         service_full_name: service.full_name,
+         package: service.package,
+         rpc_name: rpc.name,
+         path: rpc.path,
+         input_type: rpc.input,
+         output_type: rpc.output,
+         input_message: input_msg,
+         output_message: output_msg,
+         request_stream: rpc.request_stream,
+         response_stream: rpc.response_stream,
+         schema: schema,
+         handler: handler
+       }}
+    end
   end
 
   @doc """
@@ -149,24 +174,30 @@ defmodule SimpleGrpc.Registry do
     orig_atom = String.to_atom(rpc_name)
     snake_str = Macro.underscore(rpc_name)
 
-    cond do
-      is_atom(handlers) ->
-        handlers
+    handler =
+      cond do
+        is_atom(handlers) ->
+          handlers
 
-      Keyword.keyword?(handlers) ->
-        Keyword.get(handlers, snake_atom) || Keyword.get(handlers, orig_atom)
+        Keyword.keyword?(handlers) ->
+          Keyword.get(handlers, snake_atom) || Keyword.get(handlers, orig_atom)
 
-      is_map(handlers) ->
-        Map.get(handlers, snake_atom) ||
-          Map.get(handlers, orig_atom) ||
-          Map.get(handlers, rpc_name) ||
-          Map.get(handlers, snake_str)
+        is_map(handlers) ->
+          Map.get(handlers, snake_atom) ||
+            Map.get(handlers, orig_atom) ||
+            Map.get(handlers, rpc_name) ||
+            Map.get(handlers, snake_str)
 
-      is_function(handlers) ->
-        handlers
+        is_function(handlers) ->
+          handlers
 
-      true ->
-        raise ArgumentError, "Invalid handlers specification: #{inspect(handlers)}"
+        true ->
+          :none
+      end
+
+    case handler do
+      :none -> {:error, "Invalid handlers specification: #{inspect(handlers)}"}
+      handler -> {:ok, handler}
     end
   end
 end

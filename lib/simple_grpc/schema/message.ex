@@ -130,8 +130,12 @@ defmodule SimpleGrpc.Schema.Message do
   """
   def struct_field_names(%__MODULE__{fields: fields}) do
     Enum.flat_map(fields, fn
-      %Field{kind: :field, name: name} -> [name]
-      %Field{kind: :map, name: name} -> [name]
+      %Field{kind: :field, name: name} ->
+        [name]
+
+      %Field{kind: :map, name: name} ->
+        [name]
+
       %Field{kind: :oneof, fields: oneof_fields} ->
         Enum.map(oneof_fields, & &1.name)
     end)

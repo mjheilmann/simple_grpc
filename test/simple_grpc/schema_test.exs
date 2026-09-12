@@ -26,7 +26,10 @@ defmodule SimpleGrpc.SchemaTest do
       # Message checks
       req_msg = Schema.message(schema, "EchoRequest")
       assert %Message{name: "EchoRequest"} = req_msg
-      assert %Field{name: :message, number: 1, type: "string"} = Message.field_by_number(req_msg, 1)
+
+      assert %Field{name: :message, number: 1, type: "string"} =
+               Message.field_by_number(req_msg, 1)
+
       assert %Field{name: :message, number: 1} = Message.field_by_name(req_msg, :message)
     end
 

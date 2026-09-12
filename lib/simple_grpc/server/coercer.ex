@@ -71,12 +71,14 @@ defmodule SimpleGrpc.Server.Coercer do
   end
 
   defp to_plain_map(%{__struct__: _} = s), do: Map.from_struct(s)
+
   defp to_plain_map(map) when is_map(map) do
     Enum.reduce(map, %{}, fn {k, v}, acc ->
       atom_key = if is_binary(k), do: String.to_atom(k), else: k
       Map.put(acc, atom_key, v)
     end)
   end
+
   defp to_plain_map(kw) when is_list(kw) do
     Enum.reduce(kw, %{}, fn {k, v}, acc ->
       atom_key = if is_binary(k), do: String.to_atom(k), else: k
@@ -89,21 +91,33 @@ defmodule SimpleGrpc.Server.Coercer do
   defp default_value(%Field{type: "string"}), do: ""
   defp default_value(%Field{type: "bytes"}), do: <<>>
   defp default_value(%Field{type: "bool"}), do: false
-  defp default_value(%Field{type: t}) when t in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64), do: 0
+
+  defp default_value(%Field{type: t})
+       when t in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64),
+       do: 0
+
   defp default_value(%Field{type: t}) when t in ~w(float double), do: 0.0
   defp default_value(_), do: nil
 
   defp coerce_field_value(val, %Field{prefix: :repeated}) when is_list(val), do: val
+
   defp coerce_field_value(val, %Field{prefix: :repeated}) do
     raise ArgumentError, "Expected list for repeated field, got: #{inspect(val)}"
   end
+
   defp coerce_field_value(val, %Field{kind: :map}) when is_map(val), do: val
   defp coerce_field_value(val, %Field{kind: :map}) when is_list(val), do: Enum.into(val, %{})
   defp coerce_field_value(val, %Field{type: "string"}) when is_binary(val), do: val
   defp coerce_field_value(val, %Field{type: "string"}) when is_atom(val), do: Atom.to_string(val)
   defp coerce_field_value(val, %Field{type: "bytes"}) when is_binary(val), do: val
   defp coerce_field_value(val, %Field{type: "bool"}) when is_boolean(val), do: val
-  defp coerce_field_value(val, %Field{type: t}) when t in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64) and is_integer(val), do: val
-  defp coerce_field_value(val, %Field{type: t}) when t in ~w(float double) and is_number(val), do: val * 1.0
+
+  defp coerce_field_value(val, %Field{type: t})
+       when t in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64) and
+              is_integer(val), do: val
+
+  defp coerce_field_value(val, %Field{type: t}) when t in ~w(float double) and is_number(val),
+    do: val * 1.0
+
   defp coerce_field_value(val, _field), do: val
 end

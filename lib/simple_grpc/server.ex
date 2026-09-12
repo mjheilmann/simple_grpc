@@ -203,9 +203,14 @@ defmodule SimpleGrpc.Server do
       end
 
       def build_request(rpc_or_msg, attrs \\ %{}) do
-        case SimpleGrpc.Server.lookup_message_module(@rpc_input_messages, @message_modules, rpc_or_msg) do
+        case SimpleGrpc.Server.lookup_message_module(
+               @rpc_input_messages,
+               @message_modules,
+               rpc_or_msg
+             ) do
           nil ->
-            raise ArgumentError, "Unknown RPC or message #{inspect(rpc_or_msg)} in #{inspect(__MODULE__)}"
+            raise ArgumentError,
+                  "Unknown RPC or message #{inspect(rpc_or_msg)} in #{inspect(__MODULE__)}"
 
           message_mod ->
             message_mod.new(attrs)
@@ -213,9 +218,14 @@ defmodule SimpleGrpc.Server do
       end
 
       def build_response(rpc_or_msg, attrs \\ %{}) do
-        case SimpleGrpc.Server.lookup_message_module(@rpc_output_messages, @message_modules, rpc_or_msg) do
+        case SimpleGrpc.Server.lookup_message_module(
+               @rpc_output_messages,
+               @message_modules,
+               rpc_or_msg
+             ) do
           nil ->
-            raise ArgumentError, "Unknown RPC or message #{inspect(rpc_or_msg)} in #{inspect(__MODULE__)}"
+            raise ArgumentError,
+                  "Unknown RPC or message #{inspect(rpc_or_msg)} in #{inspect(__MODULE__)}"
 
           message_mod ->
             message_mod.new(attrs)
@@ -225,15 +235,31 @@ defmodule SimpleGrpc.Server do
       def dispatch(rpc_or_path, request_payload, stream \\ nil) do
         rpc =
           SimpleGrpc.Server.lookup_map(@rpc_definitions, rpc_or_path) ||
-            raise ArgumentError, "Unknown RPC call or path #{inspect(rpc_or_path)} in #{inspect(__MODULE__)}"
+            raise ArgumentError,
+                  "Unknown RPC call or path #{inspect(rpc_or_path)} in #{inspect(__MODULE__)}"
 
-        req_mod = SimpleGrpc.Server.fetch_rpc_module!(@rpc_input_messages, rpc_or_path, "input", __MODULE__)
-        resp_mod = SimpleGrpc.Server.fetch_rpc_module!(@rpc_output_messages, rpc_or_path, "output", __MODULE__)
+        req_mod =
+          SimpleGrpc.Server.fetch_rpc_module!(
+            @rpc_input_messages,
+            rpc_or_path,
+            "input",
+            __MODULE__
+          )
+
+        resp_mod =
+          SimpleGrpc.Server.fetch_rpc_module!(
+            @rpc_output_messages,
+            rpc_or_path,
+            "output",
+            __MODULE__
+          )
 
         req = req_mod.new(request_payload)
 
-        raw_resp = SimpleGrpc.Server.dispatch_handler(__MODULE__, __handlers__(), rpc.name, req, stream)
-        resp_mod.new(raw_resp)
+        case SimpleGrpc.Server.dispatch_handler(__MODULE__, __handlers__(), rpc.name, req, stream) do
+          {:ok, data} -> resp_mod.new(data)
+          {:error, _code, message} -> raise RuntimeError, message
+        end
       end
     end
   end
@@ -295,7 +321,8 @@ defmodule SimpleGrpc.Server do
   def fetch_rpc_module!(map, key, kind, caller_mod) when is_map(map) do
     case Map.get(map, key) do
       nil ->
-        raise ArgumentError, "Could not find #{kind} message module for RPC #{inspect(key)} in #{inspect(caller_mod)}"
+        raise ArgumentError,
+              "Could not find #{kind} message module for RPC #{inspect(key)} in #{inspect(caller_mod)}"
 
       mod ->
         mod
@@ -348,7 +375,9 @@ defmodule SimpleGrpc.Server do
   end
 
   @doc """
-  Dispatches to either an in-module handler function or a configured opts handler.
+  Dispatches to either an in-module handler function or a configured opts handler,
+  normalizing the return into `{:ok, result}` or `{:error, code, message}`.
+  Exceptions are not rescued here — they propagate to the Plug layer for gRPC status mapping.
   """
   def dispatch_handler(caller_module, handlers, rpc_name, req, stream) do
     snake_atom = String.to_atom(Macro.underscore(rpc_name))
@@ -356,34 +385,39 @@ defmodule SimpleGrpc.Server do
 
     handler = find_handler_in(handlers, rpc_name)
 
-    cond do
-      # 1. Configured handler in opts (closure, atom, MFA)
-      not is_nil(handler) ->
-        invoke_handler(handler, caller_module, req, stream)
+    raw =
+      cond do
+        # 1. Configured handler in opts (closure, atom, MFA)
+        not is_nil(handler) ->
+          invoke_handler(handler, caller_module, req, stream)
 
-      # 2. In-module snake_case function (arity 2)
-      function_exported?(caller_module, snake_atom, 2) ->
-        apply(caller_module, snake_atom, [req, stream])
+        # 2. In-module snake_case function (arity 2)
+        function_exported?(caller_module, snake_atom, 2) ->
+          apply(caller_module, snake_atom, [req, stream])
 
-      # 3. In-module snake_case function (arity 1)
-      function_exported?(caller_module, snake_atom, 1) ->
-        apply(caller_module, snake_atom, [req])
+        # 3. In-module snake_case function (arity 1)
+        function_exported?(caller_module, snake_atom, 1) ->
+          apply(caller_module, snake_atom, [req])
 
-      # 4. In-module exact name function (arity 2)
-      function_exported?(caller_module, orig_atom, 2) ->
-        apply(caller_module, orig_atom, [req, stream])
+        # 4. In-module exact name function (arity 2)
+        function_exported?(caller_module, orig_atom, 2) ->
+          apply(caller_module, orig_atom, [req, stream])
 
-      # 5. In-module exact name function (arity 1)
-      function_exported?(caller_module, orig_atom, 1) ->
-        apply(caller_module, orig_atom, [req])
+        # 5. In-module exact name function (arity 1)
+        function_exported?(caller_module, orig_atom, 1) ->
+          apply(caller_module, orig_atom, [req])
 
-      true ->
-        raise ArgumentError, "No handler registered for RPC #{inspect(rpc_name)} in #{inspect(caller_module)}"
-    end
+        true ->
+          {:error, 12,
+           "No handler registered for RPC #{inspect(rpc_name)} in #{inspect(caller_module)}"}
+      end
+
+    normalize_handler_result(raw)
   end
 
   @doc """
   Invokes a handler function or MFA tuple with the given request and optional stream.
+  Does not normalize — callers must call `normalize_handler_result/1`.
   """
   def invoke_handler(handler, caller_module, req, stream) do
     cond do
@@ -410,9 +444,22 @@ defmodule SimpleGrpc.Server do
         end
 
       true ->
-        raise ArgumentError, "Invalid handler #{inspect(handler)}"
+        {:error, 12, "Invalid handler #{inspect(handler)}"}
     end
   end
+
+  @doc """
+  Normalizes a raw handler return value into `{:ok, result}` or `{:error, code, message}`.
+  Accepts plain maps/values, `{:ok, result}` tuples, and `{:error, ...}` tuples.
+  """
+  def normalize_handler_result({:ok, _} = ok), do: ok
+
+  def normalize_handler_result({:error, code, msg}) when is_integer(code) and is_binary(msg),
+    do: {:error, code, msg}
+
+  def normalize_handler_result({:error, msg}) when is_binary(msg), do: {:error, 2, msg}
+  def normalize_handler_result({:error, reason}), do: {:error, 2, inspect(reason)}
+  def normalize_handler_result(result), do: {:ok, result}
 
   defp expand_rpc_key_mappings(rpc_name, val) do
     snake_atom = String.to_atom(Macro.underscore(rpc_name))

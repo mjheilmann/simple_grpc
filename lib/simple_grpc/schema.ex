@@ -42,8 +42,11 @@ defmodule SimpleGrpc.Schema do
   """
   def from_file!(file_path) do
     case from_file(file_path) do
-      {:ok, schema} -> schema
-      {:error, reason} -> raise ArgumentError, "Failed to load schema from #{inspect(file_path)}: #{reason}"
+      {:ok, schema} ->
+        schema
+
+      {:error, reason} ->
+        raise ArgumentError, "Failed to load schema from #{inspect(file_path)}: #{reason}"
     end
   end
 
@@ -161,6 +164,34 @@ defmodule SimpleGrpc.Schema do
     Map.get(messages, name_str) ||
       (package && Map.get(messages, String.replace_prefix(name_str, "#{package}.", ""))) ||
       Enum.find_value(messages, fn {_k, m} -> if m.full_name == name_str, do: m end)
+  end
+
+  @doc """
+  Finds an enum by name or full name across top-level enums and message nested enums.
+  """
+  def enum(%__MODULE__{enums: enums, messages: messages, package: package}, name) do
+    name_str = to_string(name)
+
+    Map.get(enums, name_str) ||
+      (package && Map.get(enums, String.replace_prefix(name_str, "#{package}.", ""))) ||
+      Enum.find_value(enums, fn {_k, e} -> if e.name == name_str, do: e end) ||
+      Enum.find_value(messages, fn {_msg_name, msg} ->
+        find_nested_enum(msg, name_str)
+      end)
+  end
+
+  def enum(_other, _name), do: nil
+
+  defp find_nested_enum(
+         %Message{name: msg_name, nested_enums: nested_enums, nested_messages: nested_messages},
+         name_str
+       ) do
+    Enum.find(nested_enums, fn e ->
+      e.name == name_str or
+        "#{msg_name}.#{e.name}" == name_str or
+        String.ends_with?(name_str, ".#{e.name}")
+    end) ||
+      Enum.find_value(nested_messages, &find_nested_enum(&1, name_str))
   end
 
   @doc """

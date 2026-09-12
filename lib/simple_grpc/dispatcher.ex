@@ -12,16 +12,12 @@ defmodule SimpleGrpc.Dispatcher do
 
   @doc """
   Invokes a handler and normalizes the return value into `{:ok, result}` or `{:error, code, message}`.
+  Exceptions are not rescued here — they propagate to the Plug layer for gRPC status mapping.
   """
   def invoke_handler(handler, rpc_name, req, stream) do
     raw_result = execute_handler(handler, rpc_name, req, stream)
-    normalize_result(raw_result)
-  rescue
-    e in ArgumentError ->
-      {:error, 3, Exception.message(e)}
 
-    e ->
-      {:error, 2, Exception.message(e)}
+    normalize_result(raw_result)
   end
 
   defp execute_handler(handler, _rpc_name, req, stream) when is_function(handler, 2) do
@@ -60,23 +56,26 @@ defmodule SimpleGrpc.Dispatcher do
       function_exported?(module, :__handlers__, 0) ->
         case SimpleGrpc.Server.find_handler_in(module.__handlers__(), rpc_name) do
           nil ->
-            raise ArgumentError, "No handler found for #{rpc_name} in #{inspect(module)}"
+            {:error, 12, "No handler found for #{rpc_name} in #{inspect(module)}"}
 
           h ->
             execute_handler(h, rpc_name, req, stream)
         end
 
       true ->
-        raise ArgumentError, "No handler function found for #{rpc_name} in #{inspect(module)}"
+        {:error, 12, "No handler function found for #{rpc_name} in #{inspect(module)}"}
     end
   end
 
   defp execute_handler(handler, rpc_name, _req, _stream) do
-    raise ArgumentError, "Unsupported handler #{inspect(handler)} for RPC #{inspect(rpc_name)}"
+    {:error, 12, "Unsupported handler #{inspect(handler)} for RPC #{inspect(rpc_name)}"}
   end
 
   defp normalize_result({:ok, _} = ok), do: ok
-  defp normalize_result({:error, code, msg}) when is_integer(code) and is_binary(msg), do: {:error, code, msg}
+
+  defp normalize_result({:error, code, msg}) when is_integer(code) and is_binary(msg),
+    do: {:error, code, msg}
+
   defp normalize_result({:error, msg}) when is_binary(msg), do: {:error, 2, msg}
   defp normalize_result({:error, reason}), do: {:error, 2, inspect(reason)}
   defp normalize_result(result), do: {:ok, result}

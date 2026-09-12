@@ -21,7 +21,7 @@ defmodule SimpleGrpc.Parser do
   end
 
   @doc """
-  Parses a proto file path and returns `{version, service_name, ast}` or raises `ArgumentError`.
+  Parses a proto file path and returns `{version, service_name, ast}` or throws.
   """
   def parse!(service_filepath) do
     case parse(service_filepath) do
@@ -29,7 +29,7 @@ defmodule SimpleGrpc.Parser do
         {version, service_name, ast}
 
       {:error, reason} ->
-        raise ArgumentError, "Failed to parse #{inspect(service_filepath)}: #{reason}"
+        throw({:error, "Failed to parse #{inspect(service_filepath)}: #{reason}"})
     end
   end
 
@@ -57,4 +57,3 @@ defmodule SimpleGrpc.Parser do
     end
   end
 end
-

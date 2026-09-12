@@ -91,9 +91,8 @@ defmodule SimpleGrpc.ServerTest do
     end
     """
 
-    assert_raise ArgumentError, ~r/service definition not found/, fn ->
-      Code.eval_string(server)
-    end
+    assert {:error, reason} = catch_throw(Code.eval_string(server))
+    assert reason =~ "service definition not found"
   end
 
   test "Server Compile succeeds when a service is present with no RPCs" do
@@ -126,9 +125,11 @@ defmodule SimpleGrpc.ServerTest do
     end
     """
 
-    assert_raise CompileError, ~r/Missing handler for RPC call\(s\): "ServerStreamingCall", "ClientStreamingCall", "BidirectionalStreamingCall"/, fn ->
-      Code.eval_string(server)
-    end
+    assert_raise CompileError,
+                 ~r/Missing handler for RPC call\(s\): "ServerStreamingCall", "ClientStreamingCall", "BidirectionalStreamingCall"/,
+                 fn ->
+                   Code.eval_string(server)
+                 end
   end
 
   test "Server Compile succeeds with in-module handler callbacks" do
@@ -184,9 +185,9 @@ defmodule SimpleGrpc.ServerTest do
     assert resp.reply == "pong"
 
     assert SampleEchoServer.__messages__() == %{
-      "EchoRequest" => SampleEchoServer.EchoRequest,
-      "EchoResponse" => SampleEchoServer.EchoResponse
-    }
+             "EchoRequest" => SampleEchoServer.EchoRequest,
+             "EchoResponse" => SampleEchoServer.EchoResponse
+           }
   end
 
   test "Extracts message field metadata via __fields__/0 and __field__/1" do
@@ -238,7 +239,10 @@ defmodule SimpleGrpc.ServerTest do
     mid = %SampleNestedServer.OuterMessage.MiddleMessage{middle_field: "mid_val"}
     assert mid.middle_field == "mid_val"
 
-    deep = %SampleNestedServer.OuterMessage.MiddleMessage.InnerMessage.DeepMessage{deep_field: "deep_val"}
+    deep = %SampleNestedServer.OuterMessage.MiddleMessage.InnerMessage.DeepMessage{
+      deep_field: "deep_val"
+    }
+
     assert deep.deep_field == "deep_val"
 
     fields = SampleNestedServer.OuterMessage.__fields__()
@@ -277,11 +281,13 @@ defmodule SimpleGrpc.ServerTest do
     assert response_str == %SampleEchoServer.EchoResponse{reply: "Echo: String RPC"}
 
     # Dispatch by full gRPC HTTP path
-    response_path = SampleEchoServer.dispatch("/custom_prefix.PrefixService/Echo", %{message: "HTTP Path Call"})
+    response_path =
+      SampleEchoServer.dispatch("/custom_prefix.PrefixService/Echo", %{message: "HTTP Path Call"})
+
     assert response_path == %SampleEchoServer.EchoResponse{reply: "Echo: HTTP Path Call"}
 
     # Keyword list input
-    response_kw = SampleEchoServer.dispatch("Echo", [message: "Keyword World"])
+    response_kw = SampleEchoServer.dispatch("Echo", message: "Keyword World")
     assert response_kw == %SampleEchoServer.EchoResponse{reply: "Echo: Keyword World"}
 
     # Global service dispatch
@@ -291,6 +297,7 @@ defmodule SimpleGrpc.ServerTest do
 
   test "Dispatches streaming service RPCs with in-module handlers" do
     unary_resp = SampleStreamingServer.dispatch(:unary_call, %{message: "test", sequence: 5})
+
     assert unary_resp == %SampleStreamingServer.StreamResponse{
              result: "Processed: test",
              sequence: 5,
@@ -298,7 +305,10 @@ defmodule SimpleGrpc.ServerTest do
            }
 
     server_stream_resp =
-      SampleStreamingServer.dispatch("/streaming.StreamingService/ServerStreamingCall", %{message: "stream", sequence: 10})
+      SampleStreamingServer.dispatch("/streaming.StreamingService/ServerStreamingCall", %{
+        message: "stream",
+        sequence: 10
+      })
 
     assert server_stream_resp == %SampleStreamingServer.StreamResponse{
              result: "Stream: stream",
