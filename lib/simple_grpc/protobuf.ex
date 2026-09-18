@@ -139,7 +139,7 @@ defmodule SimpleGrpc.Protobuf do
     end)
   end
 
-  defp encode_single_field(field_num, type, value, schema_ctx, msg_desc \\ nil) do
+  defp encode_single_field(field_num, type, value, schema_ctx, msg_desc) do
     wire_type = wire_type_for(type, schema_ctx, msg_desc)
     tag = encode_tag(field_num, wire_type)
 
@@ -159,7 +159,7 @@ defmodule SimpleGrpc.Protobuf do
     end
   end
 
-  defp encode_raw_value(type, value, schema_ctx, msg_desc \\ nil) do
+  defp encode_raw_value(type, value, schema_ctx, msg_desc) do
     case wire_type_for(type, schema_ctx, msg_desc) do
       0 ->
         encode_varint_type(type, value, schema_ctx, msg_desc)
@@ -243,8 +243,6 @@ defmodule SimpleGrpc.Protobuf do
         throw({:error, "Invalid enum value #{inspect(val)} for enum #{inspect(name)}"})
     end
   end
-
-  defp resolve_enum_value_to_integer(val, _other) when is_integer(val), do: val
 
   defp resolve_enum_integer_to_atom(int_val, %Schema.Enum{fields: fields})
        when is_integer(int_val) do
@@ -557,7 +555,7 @@ defmodule SimpleGrpc.Protobuf do
     end)
   end
 
-  defp default_scalar_value(type, schema_ctx \\ nil, msg_desc \\ nil)
+  defp default_scalar_value(type, schema_ctx, msg_desc)
   defp default_scalar_value("string", _schema_ctx, _msg_desc), do: ""
   defp default_scalar_value("bytes", _schema_ctx, _msg_desc), do: <<>>
   defp default_scalar_value("bool", _schema_ctx, _msg_desc), do: false
@@ -582,8 +580,7 @@ defmodule SimpleGrpc.Protobuf do
     end
   end
 
-  defp is_default_value?(val, type, schema_ctx \\ nil, msg_desc \\ nil)
-  defp is_default_value?(nil, _type, _schema_ctx, _msg_desc), do: true
+  defp is_default_value?(val, type, schema_ctx, msg_desc)
   defp is_default_value?(val, "string", _schema_ctx, _msg_desc), do: val == ""
   defp is_default_value?(val, "bytes", _schema_ctx, _msg_desc), do: val == <<>>
   defp is_default_value?(val, "bool", _schema_ctx, _msg_desc), do: val == false
@@ -608,7 +605,7 @@ defmodule SimpleGrpc.Protobuf do
         val == 0
       end
     else
-      is_nil(val)
+      false
     end
   end
 

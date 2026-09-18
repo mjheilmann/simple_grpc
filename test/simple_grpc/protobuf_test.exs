@@ -239,4 +239,166 @@ defmodule SimpleGrpc.ProtobufTest do
       assert is_nil(decoded[:f2])
     end
   end
+
+  describe "Proto3 optional field presence (explicit presence)" do
+    setup do
+      {:ok, schema} = Schema.from_file("priv/protos/scalar_types/scalar_types.proto")
+      req_msg = Schema.message(schema, "ScalarRequest")
+      %{schema: schema, req_msg: req_msg}
+    end
+
+    test "encoder omits optional fields when value is nil or absent", %{
+      req_msg: req_msg,
+      schema: schema
+    } do
+      # Absent fields
+      assert Protobuf.encode!(req_msg, %{}, schema) == <<>>
+
+      # Explicit nil fields
+      assert Protobuf.encode!(req_msg, %{optional_string: nil, optional_int: nil}, schema) == <<>>
+    end
+
+    test "encoder serializes explicit default values for optional fields (0, false, empty string, etc.)",
+         %{
+           req_msg: req_msg,
+           schema: schema
+         } do
+      # For a non-optional field, default values (e.g. 0 or "") are omitted:
+      encoded_non_opt = Protobuf.encode!(req_msg, %{string_field: "", int32_field: 0}, schema)
+      assert encoded_non_opt == <<>>
+
+      # For an optional field, explicit default values MUST be serialized to wire:
+      encoded_opt = Protobuf.encode!(req_msg, %{optional_string: "", optional_int: 0}, schema)
+      assert byte_size(encoded_opt) > 0
+
+      # optional_string is field 18, wire type 2 -> (18 <<< 3) | 2 = 146 (0x92, 0x01)
+      # length is 0 -> 0x00
+      expected_str_field = <<0x92, 0x01, 0x00>>
+      assert String.contains?(encoded_opt, expected_str_field)
+
+      # optional_int is field 19, wire type 0 -> (19 <<< 3) | 0 = 152 (0x98, 0x01)
+      # varint 0 -> 0x00
+      expected_int_field = <<0x98, 0x01, 0x00>>
+      assert String.contains?(encoded_opt, expected_int_field)
+    end
+
+    test "decoder preserves missing optional fields as nil instead of default scalar values", %{
+      req_msg: req_msg,
+      schema: schema
+    } do
+      # Decoding an empty payload
+      decoded = Protobuf.decode!(req_msg, <<>>, schema)
+
+      # Optional fields are nil
+      assert is_nil(decoded.optional_string)
+      assert is_nil(decoded.optional_int)
+
+      # Non-optional fields default to scalar defaults
+      assert decoded.string_field == ""
+      assert decoded.int32_field == 0
+      assert decoded.bool_field == false
+      assert decoded.double_field == 0.0
+    end
+
+    test "decoder restores explicit default values when present on the wire", %{
+      req_msg: req_msg,
+      schema: schema
+    } do
+      encoded = Protobuf.encode!(req_msg, %{optional_string: "", optional_int: 0}, schema)
+      decoded = Protobuf.decode!(req_msg, encoded, schema)
+
+      assert decoded.optional_string == ""
+      assert decoded.optional_int == 0
+    end
+
+    test "encodes and decodes optional fields across all scalar types" do
+      msg = %Message{
+        name: "OptionalScalars",
+        fields: [
+          %Field{name: :opt_int32, number: 1, type: "int32", prefix: :optional, kind: :field},
+          %Field{name: :opt_sint32, number: 2, type: "sint32", prefix: :optional, kind: :field},
+          %Field{name: :opt_bool, number: 3, type: "bool", prefix: :optional, kind: :field},
+          %Field{name: :opt_float, number: 4, type: "float", prefix: :optional, kind: :field},
+          %Field{name: :opt_double, number: 5, type: "double", prefix: :optional, kind: :field},
+          %Field{name: :opt_str, number: 6, type: "string", prefix: :optional, kind: :field},
+          %Field{name: :opt_bytes, number: 7, type: "bytes", prefix: :optional, kind: :field},
+          %Field{name: :req_int32, number: 8, type: "int32", kind: :field},
+          %Field{name: :req_str, number: 9, type: "string", kind: :field}
+        ],
+        fields_by_number: %{
+          1 =>
+            %Field{name: :opt_int32, number: 1, type: "int32", prefix: :optional, kind: :field},
+          2 =>
+            %Field{name: :opt_sint32, number: 2, type: "sint32", prefix: :optional, kind: :field},
+          3 => %Field{name: :opt_bool, number: 3, type: "bool", prefix: :optional, kind: :field},
+          4 =>
+            %Field{name: :opt_float, number: 4, type: "float", prefix: :optional, kind: :field},
+          5 =>
+            %Field{name: :opt_double, number: 5, type: "double", prefix: :optional, kind: :field},
+          6 => %Field{name: :opt_str, number: 6, type: "string", prefix: :optional, kind: :field},
+          7 =>
+            %Field{name: :opt_bytes, number: 7, type: "bytes", prefix: :optional, kind: :field},
+          8 => %Field{name: :req_int32, number: 8, type: "int32", kind: :field},
+          9 => %Field{name: :req_str, number: 9, type: "string", kind: :field}
+        }
+      }
+
+      # 1. Missing fields: optional are nil, non-optional are defaults
+      decoded_empty = Protobuf.decode!(msg, <<>>)
+      assert is_nil(decoded_empty.opt_int32)
+      assert is_nil(decoded_empty.opt_sint32)
+      assert is_nil(decoded_empty.opt_bool)
+      assert is_nil(decoded_empty.opt_float)
+      assert is_nil(decoded_empty.opt_double)
+      assert is_nil(decoded_empty.opt_str)
+      assert is_nil(decoded_empty.opt_bytes)
+      assert decoded_empty.req_int32 == 0
+      assert decoded_empty.req_str == ""
+
+      # 2. Explicit defaults for optional fields are preserved
+      explicit_defaults = %{
+        opt_int32: 0,
+        opt_sint32: 0,
+        opt_bool: false,
+        opt_float: 0.0,
+        opt_double: 0.0,
+        opt_str: "",
+        opt_bytes: <<>>
+      }
+
+      encoded = Protobuf.encode!(msg, explicit_defaults)
+      # Must not be empty because optional defaults are serialized
+      assert byte_size(encoded) > 0
+
+      decoded = Protobuf.decode!(msg, encoded)
+      assert decoded.opt_int32 == 0
+      assert decoded.opt_sint32 == 0
+      assert decoded.opt_bool == false
+      assert decoded.opt_float == 0.0
+      assert decoded.opt_double == 0.0
+      assert decoded.opt_str == ""
+      assert decoded.opt_bytes == <<>>
+
+      # 3. Non-default values are preserved
+      values = %{
+        opt_int32: 123,
+        opt_sint32: -456,
+        opt_bool: true,
+        opt_float: 1.5,
+        opt_double: 2.5,
+        opt_str: "proto3 optional",
+        opt_bytes: <<10, 20, 30>>
+      }
+
+      encoded_vals = Protobuf.encode!(msg, values)
+      decoded_vals = Protobuf.decode!(msg, encoded_vals)
+      assert decoded_vals.opt_int32 == 123
+      assert decoded_vals.opt_sint32 == -456
+      assert decoded_vals.opt_bool == true
+      assert_in_delta decoded_vals.opt_float, 1.5, 0.001
+      assert_in_delta decoded_vals.opt_double, 2.5, 0.001
+      assert decoded_vals.opt_str == "proto3 optional"
+      assert decoded_vals.opt_bytes == <<10, 20, 30>>
+    end
+  end
 end

@@ -86,6 +86,7 @@ defmodule SimpleGrpc.Server.Coercer do
     end)
   end
 
+  defp default_value(%Field{prefix: :optional}), do: nil
   defp default_value(%Field{prefix: :repeated}), do: []
   defp default_value(%Field{kind: :map}), do: %{}
   defp default_value(%Field{type: "string"}), do: ""

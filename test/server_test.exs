@@ -330,4 +330,39 @@ defmodule SimpleGrpc.ServerTest do
       SampleEchoServer.build_request(:echo, %{non_existent: "error"})
     end
   end
+
+  test "Coercer and Message.new handle optional fields with explicit presence" do
+    {:ok, schema} = SimpleGrpc.Schema.from_file("priv/protos/scalar_types/scalar_types.proto")
+    msg = SimpleGrpc.Schema.message(schema, "ScalarRequest")
+    ast = SimpleGrpc.Server.Message.generate_module_ast(msg, OptionalTestNamespace)
+    Code.eval_quoted(ast)
+
+    mod = Module.concat(OptionalTestNamespace, "ScalarRequest")
+
+    # Empty attributes -> optional fields default to nil, non-optional fields default to scalar defaults
+    struct_empty = mod.new(%{})
+    assert is_nil(struct_empty.optional_string)
+    assert is_nil(struct_empty.optional_int)
+    assert struct_empty.string_field == ""
+    assert struct_empty.int32_field == 0
+    assert struct_empty.bool_field == false
+
+    # Explicit nil attributes -> optional fields stay nil
+    struct_nil = mod.new(%{optional_string: nil, optional_int: nil})
+
+    assert is_nil(struct_nil.optional_string)
+    assert is_nil(struct_nil.optional_int)
+
+    # Explicit default attributes -> optional fields preserve explicit defaults
+    struct_defaults = mod.new(%{optional_string: "", optional_int: 0})
+
+    assert struct_defaults.optional_string == ""
+    assert struct_defaults.optional_int == 0
+
+    # Explicit non-default attributes
+    struct_custom = mod.new(%{optional_string: "hello", optional_int: 42})
+
+    assert struct_custom.optional_string == "hello"
+    assert struct_custom.optional_int == 42
+  end
 end
