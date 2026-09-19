@@ -83,6 +83,14 @@ defmodule SimpleGrpc.Server.Message do
 
         def __nested_enums__, do: unquote(enums_escaped)
 
+        def __schema__ do
+          if function_exported?(unquote(parent_module), :__schema__, 0) do
+            apply(unquote(parent_module), :__schema__, [])
+          else
+            nil
+          end
+        end
+
         unquote_splicing(nested_submodules_ast)
       end
     end

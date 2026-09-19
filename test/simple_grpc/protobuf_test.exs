@@ -401,4 +401,162 @@ defmodule SimpleGrpc.ProtobufTest do
       assert decoded_vals.opt_bytes == <<10, 20, 30>>
     end
   end
+
+  describe "Enum Atom <-> Integer Wire Resolution" do
+    setup do
+      {:ok, edge_schema} = Schema.from_file("priv/protos/edge_cases/edge_cases.proto")
+      edge_msg = Schema.message(edge_schema, "ComplicatedRequest")
+
+      {:ok, nested_schema} =
+        Schema.from_file("priv/protos/nested_enum_conflict/nested_enum_conflict.proto")
+
+      nested_msg = Schema.message(nested_schema, "ListFoosRequest")
+
+      %{
+        edge_schema: edge_schema,
+        edge_msg: edge_msg,
+        nested_schema: nested_schema,
+        nested_msg: nested_msg
+      }
+    end
+
+    test "encoder encodes symbolic atoms, strings, and integers for top-level enums", %{
+      edge_msg: edge_msg,
+      edge_schema: edge_schema
+    } do
+      # status is field 3, wire type 0 -> (3 <<< 3) | 0 = 24 (0x18)
+      # :status_active is 1 -> <<0x18, 1>>
+      assert Protobuf.encode!(edge_msg, %{status: :status_active}, edge_schema) == <<0x18, 1>>
+
+      # string "STATUS_INACTIVE" is 2 -> <<0x18, 2>>
+      assert Protobuf.encode!(edge_msg, %{status: "STATUS_INACTIVE"}, edge_schema) == <<0x18, 2>>
+
+      # case-insensitive atom or string
+      assert Protobuf.encode!(edge_msg, %{status: :STATUS_ACTIVE}, edge_schema) == <<0x18, 1>>
+      assert Protobuf.encode!(edge_msg, %{status: "status_inactive"}, edge_schema) == <<0x18, 2>>
+
+      # numeric string "3" or raw integer 3
+      assert Protobuf.encode!(edge_msg, %{status: "3"}, edge_schema) == <<0x18, 3>>
+      assert Protobuf.encode!(edge_msg, %{status: 3}, edge_schema) == <<0x18, 3>>
+
+      # negative enum value :ERROR_STATE (-1)
+      encoded_neg = Protobuf.encode!(edge_msg, %{status: :ERROR_STATE}, edge_schema)
+      assert byte_size(encoded_neg) > 0
+    end
+
+    test "encoder omits default zero enum value on non-optional fields", %{
+      edge_msg: edge_msg,
+      edge_schema: edge_schema
+    } do
+      # DETAILED_STATUS_UNSPECIFIED is 0 -> should be omitted for non-optional field
+      assert Protobuf.encode!(edge_msg, %{status: :DETAILED_STATUS_UNSPECIFIED}, edge_schema) ==
+               <<>>
+
+      assert Protobuf.encode!(edge_msg, %{status: "DETAILED_STATUS_UNSPECIFIED"}, edge_schema) ==
+               <<>>
+
+      assert Protobuf.encode!(edge_msg, %{status: 0}, edge_schema) == <<>>
+    end
+
+    test "encoder errors on invalid/unknown enum values", %{
+      edge_msg: edge_msg,
+      edge_schema: edge_schema
+    } do
+      assert {:error, 13, _} =
+               Protobuf.encode(edge_msg, %{status: :NON_EXISTENT_ENUM_VAL}, edge_schema)
+
+      assert {:error, 13, _} =
+               Protobuf.encode(edge_msg, %{status: "NON_EXISTENT_ENUM_VAL"}, edge_schema)
+    end
+
+    test "decoder maps recognized wire integers to symbolic atoms", %{
+      edge_msg: edge_msg,
+      edge_schema: edge_schema
+    } do
+      # 1 -> :status_active
+      decoded1 = Protobuf.decode!(edge_msg, <<0x18, 1>>, edge_schema)
+      assert decoded1.status == :status_active
+
+      # 2 -> :STATUS_INACTIVE
+      decoded2 = Protobuf.decode!(edge_msg, <<0x18, 2>>, edge_schema)
+      assert decoded2.status == :STATUS_INACTIVE
+
+      # 3 -> :Status_Pending
+      decoded3 = Protobuf.decode!(edge_msg, <<0x18, 3>>, edge_schema)
+      assert decoded3.status == :Status_Pending
+
+      # 0 on wire -> :DETAILED_STATUS_UNSPECIFIED
+      decoded0 = Protobuf.decode!(edge_msg, <<0x18, 0>>, edge_schema)
+      assert decoded0.status == :DETAILED_STATUS_UNSPECIFIED
+
+      # Missing on wire -> defaults to zero atom :DETAILED_STATUS_UNSPECIFIED
+      decoded_empty = Protobuf.decode!(edge_msg, <<>>, edge_schema)
+      assert decoded_empty.status == :DETAILED_STATUS_UNSPECIFIED
+    end
+
+    test "decoder preserves unrecognized wire integers as integers", %{
+      edge_msg: edge_msg,
+      edge_schema: edge_schema
+    } do
+      decoded = Protobuf.decode!(edge_msg, <<0x18, 99>>, edge_schema)
+      assert decoded.status == 99
+    end
+
+    test "supports negative enum values roundtrip", %{
+      edge_msg: edge_msg,
+      edge_schema: edge_schema
+    } do
+      encoded = Protobuf.encode!(edge_msg, %{status: :ERROR_STATE}, edge_schema)
+      decoded = Protobuf.decode!(edge_msg, encoded, edge_schema)
+      assert decoded.status == :ERROR_STATE
+    end
+
+    test "supports nested enums defined inside message definitions", %{
+      nested_msg: nested_msg,
+      nested_schema: nested_schema
+    } do
+      # sort_order is field 1, wire type 0 -> <<8, ...>>
+      # 1 -> :SORT_ORDER_NEWEST_FIRST
+      encoded_atom =
+        Protobuf.encode!(nested_msg, %{sort_order: :SORT_ORDER_NEWEST_FIRST}, nested_schema)
+
+      assert encoded_atom == <<8, 1>>
+
+      encoded_str =
+        Protobuf.encode!(nested_msg, %{sort_order: "SORT_ORDER_NEWEST_FIRST"}, nested_schema)
+
+      assert encoded_str == <<8, 1>>
+
+      decoded = Protobuf.decode!(nested_msg, encoded_atom, nested_schema)
+      assert decoded.sort_order == :SORT_ORDER_NEWEST_FIRST
+
+      decoded_empty = Protobuf.decode!(nested_msg, <<>>, nested_schema)
+      assert decoded_empty.sort_order == :SORT_ORDER_UNSPECIFIED
+    end
+
+    test "supports repeated enum fields with atoms, strings, and integers" do
+      msg = %Message{
+        name: "RepeatedEnums",
+        fields: [
+          %Field{name: :statuses, number: 1, type: "Status", prefix: :repeated, kind: :field}
+        ],
+        fields_by_number: %{
+          1 =>
+            %Field{name: :statuses, number: 1, type: "Status", prefix: :repeated, kind: :field}
+        },
+        nested_enums: [
+          %Schema.Enum{
+            name: "Status",
+            fields: [STATUS_UNKNOWN: 0, STATUS_ACTIVE: 1, STATUS_PAUSED: 2]
+          }
+        ]
+      }
+
+      payload = %{statuses: [:STATUS_ACTIVE, "STATUS_PAUSED", 1]}
+      encoded = Protobuf.encode!(msg, payload)
+      decoded = Protobuf.decode!(msg, encoded)
+
+      assert decoded.statuses == [:STATUS_ACTIVE, :STATUS_PAUSED, :STATUS_ACTIVE]
+    end
+  end
 end

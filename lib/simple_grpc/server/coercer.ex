@@ -49,7 +49,11 @@ defmodule SimpleGrpc.Server.Coercer do
               if is_nil(val) do
                 inner_acc
               else
-                Map.put(inner_acc, oneof_subfield.name, coerce_field_value(val, oneof_subfield))
+                Map.put(
+                  inner_acc,
+                  oneof_subfield.name,
+                  coerce_field_value(val, oneof_subfield, message_module)
+                )
               end
             end)
 
@@ -58,9 +62,9 @@ defmodule SimpleGrpc.Server.Coercer do
 
             coerced_val =
               if is_nil(val) do
-                default_value(field)
+                default_value(field, message_module)
               else
-                coerce_field_value(val, field)
+                coerce_field_value(val, field, message_module)
               end
 
             Map.put(acc, field.name, coerced_val)
@@ -86,39 +90,127 @@ defmodule SimpleGrpc.Server.Coercer do
     end)
   end
 
-  defp default_value(%Field{prefix: :optional}), do: nil
-  defp default_value(%Field{prefix: :repeated}), do: []
-  defp default_value(%Field{kind: :map}), do: %{}
-  defp default_value(%Field{type: "string"}), do: ""
-  defp default_value(%Field{type: "bytes"}), do: <<>>
-  defp default_value(%Field{type: "bool"}), do: false
+  defp default_value(%Field{prefix: :optional}, _mod), do: nil
+  defp default_value(%Field{prefix: :repeated}, _mod), do: []
+  defp default_value(%Field{kind: :map}, _mod), do: %{}
+  defp default_value(%Field{type: "string"}, _mod), do: ""
+  defp default_value(%Field{type: "bytes"}, _mod), do: <<>>
+  defp default_value(%Field{type: "bool"}, _mod), do: false
 
-  defp default_value(%Field{type: t})
+  defp default_value(%Field{type: t}, _mod)
        when t in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64),
        do: 0
 
-  defp default_value(%Field{type: t}) when t in ~w(float double), do: 0.0
-  defp default_value(_), do: nil
+  defp default_value(%Field{type: t}, _mod) when t in ~w(float double), do: 0.0
 
-  defp coerce_field_value(val, %Field{prefix: :repeated}) when is_list(val), do: val
+  defp default_value(%Field{type: type}, message_module) do
+    {schema_ctx, msg_desc} = enum_resolution_ctx(message_module)
 
-  defp coerce_field_value(val, %Field{prefix: :repeated}) do
+    if SimpleGrpc.Protobuf.is_enum_type?(type, schema_ctx, msg_desc) do
+      enum_desc = SimpleGrpc.Protobuf.resolve_enum_descriptor(type, schema_ctx, msg_desc)
+
+      if enum_desc do
+        Enum.find_value(enum_desc.fields, 0, fn {k, v} -> if v == 0, do: k end)
+      else
+        0
+      end
+    else
+      nil
+    end
+  end
+
+  defp coerce_field_value(val, %Field{prefix: :repeated}, _mod) when is_list(val), do: val
+
+  defp coerce_field_value(val, %Field{prefix: :repeated}, _mod) do
     raise ArgumentError, "Expected list for repeated field, got: #{inspect(val)}"
   end
 
-  defp coerce_field_value(val, %Field{kind: :map}) when is_map(val), do: val
-  defp coerce_field_value(val, %Field{kind: :map}) when is_list(val), do: Enum.into(val, %{})
-  defp coerce_field_value(val, %Field{type: "string"}) when is_binary(val), do: val
-  defp coerce_field_value(val, %Field{type: "string"}) when is_atom(val), do: Atom.to_string(val)
-  defp coerce_field_value(val, %Field{type: "bytes"}) when is_binary(val), do: val
-  defp coerce_field_value(val, %Field{type: "bool"}) when is_boolean(val), do: val
+  defp coerce_field_value(val, %Field{kind: :map}, _mod) when is_map(val), do: val
+  defp coerce_field_value(val, %Field{kind: :map}, _mod) when is_list(val), do: Enum.into(val, %{})
+  defp coerce_field_value(val, %Field{type: "string"}, _mod) when is_binary(val), do: val
+  defp coerce_field_value(val, %Field{type: "string"}, _mod) when is_atom(val), do: Atom.to_string(val)
+  defp coerce_field_value(val, %Field{type: "bytes"}, _mod) when is_binary(val), do: val
+  defp coerce_field_value(val, %Field{type: "bool"}, _mod) when is_boolean(val), do: val
 
-  defp coerce_field_value(val, %Field{type: t})
+  defp coerce_field_value(val, %Field{type: t}, _mod)
        when t in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64) and
-              is_integer(val), do: val
+              is_integer(val),
+       do: val
 
-  defp coerce_field_value(val, %Field{type: t}) when t in ~w(float double) and is_number(val),
-    do: val * 1.0
+  defp coerce_field_value(val, %Field{type: t}, _mod)
+       when t in ~w(float double) and is_number(val),
+       do: val * 1.0
 
-  defp coerce_field_value(val, _field), do: val
+  defp coerce_field_value(val, %Field{type: type}, message_module)
+       when is_atom(val) or is_binary(val) or is_integer(val) do
+    {schema_ctx, msg_desc} = enum_resolution_ctx(message_module)
+
+    if SimpleGrpc.Protobuf.is_enum_type?(type, schema_ctx, msg_desc) do
+      enum_desc = SimpleGrpc.Protobuf.resolve_enum_descriptor(type, schema_ctx, msg_desc)
+
+      if enum_desc do
+        cond do
+          is_atom(val) ->
+            case Enum.find(enum_desc.fields, fn {k, _v} ->
+                   k == val or
+                     String.upcase(Atom.to_string(k)) == String.upcase(Atom.to_string(val))
+                 end) do
+              {k, _} -> k
+              nil -> val
+            end
+
+          is_binary(val) ->
+            case Enum.find(enum_desc.fields, fn {k, _v} ->
+                   Atom.to_string(k) == val or
+                     String.upcase(Atom.to_string(k)) == String.upcase(val)
+                 end) do
+              {k, _} -> k
+              nil -> val
+            end
+
+          is_integer(val) ->
+            case Enum.find(enum_desc.fields, fn {_k, v} -> v == val end) do
+              {k, _} -> k
+              nil -> val
+            end
+        end
+      else
+        val
+      end
+    else
+      val
+    end
+  end
+
+  defp coerce_field_value(val, _field, _mod), do: val
+
+  # Returns {schema_ctx, msg_desc} for enum resolution.
+  # Prefers the module's schema (from __schema__/0) as primary context,
+  # and synthesises a %Message{} from __nested_enums__/0 as a fallback msg_desc.
+  defp enum_resolution_ctx(nil), do: {nil, nil}
+
+  defp enum_resolution_ctx(mod) when is_atom(mod) do
+    schema_ctx =
+      if function_exported?(mod, :__schema__, 0) do
+        mod.__schema__()
+      else
+        nil
+      end
+
+    msg_desc =
+      if function_exported?(mod, :__nested_enums__, 0) and
+           function_exported?(mod, :__message_name__, 0) do
+        %SimpleGrpc.Schema.Message{
+          name: mod.__message_name__(),
+          fields: [],
+          nested_enums: mod.__nested_enums__()
+        }
+      else
+        nil
+      end
+
+    {schema_ctx, msg_desc}
+  end
+
+  defp enum_resolution_ctx(_other), do: {nil, nil}
 end

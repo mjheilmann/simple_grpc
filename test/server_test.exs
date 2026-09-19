@@ -365,4 +365,40 @@ defmodule SimpleGrpc.ServerTest do
     assert struct_custom.optional_string == "hello"
     assert struct_custom.optional_int == 42
   end
+
+  test "Coercer resolves enum atoms, strings, and integers and populates zero-atom defaults" do
+    {:ok, schema} = SimpleGrpc.Schema.from_file("priv/protos/edge_cases/edge_cases.proto")
+    msg = SimpleGrpc.Schema.message(schema, "ComplicatedRequest")
+    schema_escaped = Macro.escape(schema)
+
+    # Define a parent namespace that exposes the schema so __schema__/0 forwards work
+    parent_ast =
+      quote do
+        defmodule EnumTestNamespace do
+          def __schema__, do: unquote(schema_escaped)
+        end
+      end
+
+    Code.eval_quoted(parent_ast)
+    ast = SimpleGrpc.Server.Message.generate_module_ast(msg, EnumTestNamespace)
+    Code.eval_quoted(ast)
+
+    mod = Module.concat(EnumTestNamespace, "ComplicatedRequest")
+
+    # When created empty, non-optional enum field defaults to zero atom
+    empty_struct = mod.new(%{})
+    assert empty_struct.status == :DETAILED_STATUS_UNSPECIFIED
+
+    # Atom value
+    atom_struct = mod.new(%{status: :status_active})
+    assert atom_struct.status == :status_active
+
+    # String value
+    str_struct = mod.new(%{status: "STATUS_INACTIVE"})
+    assert str_struct.status == :STATUS_INACTIVE
+
+    # Integer value
+    int_struct = mod.new(%{status: 3})
+    assert int_struct.status == :Status_Pending
+  end
 end

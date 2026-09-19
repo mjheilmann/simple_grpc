@@ -29,6 +29,7 @@ defmodule SimpleGrpc.Protobuf do
   Encodes data into protobuf binary format, raising on error.
   """
   def encode!(message_or_mod, data, schema_ctx \\ nil) do
+    schema_ctx = extract_schema_ctx(schema_ctx, message_or_mod)
     msg_desc = resolve_message_descriptor(message_or_mod, schema_ctx)
     plain_map = to_plain_map(data)
 
@@ -49,6 +50,7 @@ defmodule SimpleGrpc.Protobuf do
   Decodes a protobuf binary into an Elixir map, raising on error.
   """
   def decode!(message_or_mod, binary, schema_ctx \\ nil) when is_binary(binary) do
+    schema_ctx = extract_schema_ctx(schema_ctx, message_or_mod)
     msg_desc = resolve_message_descriptor(message_or_mod, schema_ctx)
     decoded_raw = decode_wire_fields(binary, msg_desc, schema_ctx, %{})
 
@@ -214,11 +216,10 @@ defmodule SimpleGrpc.Protobuf do
       int_val = resolve_enum_value_to_integer(val, enum_desc)
       encode_varint(int_val)
     else
-      if is_atom(val) do
-        encode_varint(0)
-      else
-        throw({:error, "Cannot encode #{inspect(val)} as varint for type #{inspect(type)}"})
-      end
+      throw(
+        {:error,
+         "Cannot resolve enum descriptor for type #{inspect(type)} and value #{inspect(val)}"}
+      )
     end
   end
 
@@ -229,14 +230,40 @@ defmodule SimpleGrpc.Protobuf do
 
       is_atom(val) ->
         case Enum.find(fields, fn {k, _v} -> k == val end) do
-          {_, int_val} -> int_val
-          nil -> throw({:error, "Unknown enum atom #{inspect(val)} for enum #{inspect(name)}"})
+          {_, int_val} ->
+            int_val
+
+          nil ->
+            val_str = Atom.to_string(val)
+
+            case Enum.find(fields, fn {k, _v} ->
+                   Atom.to_string(k) == val_str or
+                     String.upcase(Atom.to_string(k)) == String.upcase(val_str)
+                 end) do
+              {_, int_val} ->
+                int_val
+
+              nil ->
+                throw({:error, "Unknown enum atom #{inspect(val)} for enum #{inspect(name)}"})
+            end
         end
 
       is_binary(val) ->
-        case Enum.find(fields, fn {k, _v} -> Atom.to_string(k) == val end) do
-          {_, int_val} -> int_val
-          nil -> throw({:error, "Unknown enum string #{inspect(val)} for enum #{inspect(name)}"})
+        case Enum.find(fields, fn {k, _v} ->
+               Atom.to_string(k) == val or
+                 String.upcase(Atom.to_string(k)) == String.upcase(val)
+             end) do
+          {_, int_val} ->
+            int_val
+
+          nil ->
+            case Integer.parse(val) do
+              {int_val, ""} ->
+                int_val
+
+              _ ->
+                throw({:error, "Unknown enum string #{inspect(val)} for enum #{inspect(name)}"})
+            end
         end
 
       true ->
@@ -246,9 +273,16 @@ defmodule SimpleGrpc.Protobuf do
 
   defp resolve_enum_integer_to_atom(int_val, %Schema.Enum{fields: fields})
        when is_integer(int_val) do
-    case Enum.find(fields, fn {_k, v} -> v == int_val end) do
+    signed_32 =
+      cond do
+        int_val >= 0x8000000000000000 -> int_val - 0x10000000000000000
+        int_val >= 0x80000000 and int_val <= 0xFFFFFFFF -> int_val - 0x100000000
+        true -> int_val
+      end
+
+    case Enum.find(fields, fn {_k, v} -> v == int_val or v == signed_32 end) do
       {atom_name, _} -> atom_name
-      nil -> int_val
+      nil -> signed_32
     end
   end
 
@@ -600,7 +634,11 @@ defmodule SimpleGrpc.Protobuf do
         zero_atom = Enum.find_value(enum_desc.fields, fn {k, v} -> if v == 0, do: k end)
 
         val == 0 or val == zero_atom or
-          (is_binary(val) and zero_atom != nil and Atom.to_string(zero_atom) == val)
+          (is_atom(val) and zero_atom != nil and
+             String.upcase(Atom.to_string(val)) == String.upcase(Atom.to_string(zero_atom))) or
+          (is_binary(val) and zero_atom != nil and
+             String.upcase(val) == String.upcase(Atom.to_string(zero_atom))) or
+          (is_binary(val) and val == "0")
       else
         val == 0
       end
@@ -701,9 +739,25 @@ defmodule SimpleGrpc.Protobuf do
 
   def resolve_enum_descriptor(type_name, schema_ctx, msg_desc \\ nil)
 
+  def resolve_enum_descriptor({:enum, type_name}, schema_ctx, msg_desc) do
+    resolve_enum_descriptor(type_name, schema_ctx, msg_desc)
+  end
+
   def resolve_enum_descriptor(type_name, %Schema{} = schema, msg_desc) do
     (msg_desc && find_in_msg_nested_enums(msg_desc, type_name)) ||
       Schema.enum(schema, type_name)
+  end
+
+  def resolve_enum_descriptor(type_name, %{enums: enums} = _map_schema, msg_desc) do
+    type_str = type_name |> to_string() |> String.trim_leading(".")
+
+    (msg_desc && find_in_msg_nested_enums(msg_desc, type_name)) ||
+      Map.get(enums, type_name) ||
+      Map.get(enums, type_str) ||
+      (is_binary(type_name) && Map.get(enums, String.to_atom(type_str))) ||
+      Enum.find_value(enums, fn {_k, e} ->
+        if is_struct(e, Schema.Enum) and (e.name == type_str or e.name == type_name), do: e
+      end)
   end
 
   def resolve_enum_descriptor(type_name, mod, msg_desc) when is_atom(mod) and not is_nil(mod) do
@@ -722,7 +776,7 @@ defmodule SimpleGrpc.Protobuf do
   def resolve_enum_descriptor(_type_name, _schema_ctx, _msg_desc), do: nil
 
   defp find_in_msg_nested_enums(%Message{nested_enums: nested_enums, name: msg_name}, type_name) do
-    type_str = to_string(type_name)
+    type_str = type_name |> to_string() |> String.trim_leading(".")
 
     Enum.find(nested_enums, fn
       %Schema.Enum{name: name} ->
@@ -735,6 +789,18 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   defp find_in_msg_nested_enums(_other, _type_name), do: nil
+
+  defp extract_schema_ctx(schema_ctx, _message_or_mod) when not is_nil(schema_ctx), do: schema_ctx
+
+  defp extract_schema_ctx(nil, mod) when is_atom(mod) do
+    if function_exported?(mod, :__schema__, 0), do: mod.__schema__(), else: nil
+  end
+
+  defp extract_schema_ctx(nil, %{__struct__: mod}) when is_atom(mod) do
+    if function_exported?(mod, :__schema__, 0), do: mod.__schema__(), else: nil
+  end
+
+  defp extract_schema_ctx(nil, _other), do: nil
 
   defp resolve_message_descriptor(%Message{} = msg, _ctx), do: msg
 

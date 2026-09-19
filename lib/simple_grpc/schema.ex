@@ -148,11 +148,21 @@ defmodule SimpleGrpc.Schema do
   Finds an enum by name or full name across top-level enums and message nested enums.
   """
   def enum(%__MODULE__{enums: enums, messages: messages, package: package}, name) do
-    name_str = to_string(name)
+    name_str = name |> to_string() |> String.trim_leading(".")
+    name_atom = if is_atom(name), do: name, else: String.to_atom(name_str)
 
-    Map.get(enums, name_str) ||
+    Map.get(enums, name) ||
+      Map.get(enums, name_str) ||
+      Map.get(enums, name_atom) ||
       (package && Map.get(enums, String.replace_prefix(name_str, "#{package}.", ""))) ||
-      Enum.find_value(enums, fn {_k, e} -> if e.name == name_str, do: e end) ||
+      (package &&
+         Map.get(
+           enums,
+           String.to_atom(String.replace_prefix(name_str, "#{package}.", ""))
+         )) ||
+      Enum.find_value(enums, fn {_k, e} ->
+        if e.name == name_str or to_string(e.name) == name_str, do: e
+      end) ||
       Enum.find_value(messages, fn {_msg_name, msg} ->
         find_nested_enum(msg, name_str)
       end)
@@ -164,6 +174,8 @@ defmodule SimpleGrpc.Schema do
          %Message{name: msg_name, nested_enums: nested_enums, nested_messages: nested_messages},
          name_str
        ) do
+    name_str = String.trim_leading(name_str, ".")
+
     Enum.find(nested_enums, fn e ->
       e.name == name_str or
         "#{msg_name}.#{e.name}" == name_str or
