@@ -29,7 +29,10 @@ defmodule SimpleGrpc.Registry do
     {:ok, Map.keys(routes)}
   end
 
-  defp generate_routes(schema, handlers) do
+  @doc """
+  Generates a map of canonical gRPC paths to route descriptors from a schema and handlers.
+  """
+  def generate_routes(schema, handlers) do
     Enum.reduce_while(schema.services, [], fn {_s_name, %Service{} = service}, acc ->
       case map_service(service, schema, handlers) do
         {:ok, list} -> {:cont, [list | acc]}
@@ -145,6 +148,17 @@ defmodule SimpleGrpc.Registry do
     |> Map.values()
     |> Enum.map(& &1.service_full_name)
     |> Enum.uniq()
+  end
+
+  @doc """
+  Lists all unique schemas currently registered across routes.
+  """
+  def list_schemas do
+    get_all_routes()
+    |> Map.values()
+    |> Enum.map(& &1.schema)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(fn s -> {s.package, Map.keys(s.services), Map.keys(s.messages)} end)
   end
 
   @doc """

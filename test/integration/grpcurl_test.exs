@@ -260,4 +260,59 @@ defmodule SimpleGrpc.GrpcurlTest do
     assert output =~ ~s("100 Market St")
     assert output =~ ~s("San Francisco")
   end
+
+  describe "gRPC Server Reflection over HTTP/2 (Zero local -proto files)" do
+    setup do
+      # Enable reflection on the live server
+      SimpleGrpc.enable_reflection()
+      :ok
+    end
+
+    test "grpcurl list discovers all services via server reflection without -proto flag", %{
+      grpcurl: grpcurl
+    } do
+      {output, 0} =
+        System.cmd(grpcurl, ["-plaintext", "127.0.0.1:#{@port}", "list"],
+          stderr_to_stdout: true
+        )
+
+      assert output =~ "streaming.StreamingService"
+      assert output =~ "grpc.reflection.v1.ServerReflection"
+    end
+
+    test "grpcurl describe inspects service schema via server reflection without -proto flag", %{
+      grpcurl: grpcurl
+    } do
+      {output, 0} =
+        System.cmd(
+          grpcurl,
+          ["-plaintext", "127.0.0.1:#{@port}", "describe", "streaming.StreamingService"],
+          stderr_to_stdout: true
+        )
+
+      assert output =~ "service StreamingService"
+      assert output =~ "rpc UnaryCall"
+    end
+
+    test "grpcurl invokes RPC directly via server reflection without passing -proto file", %{
+      grpcurl: grpcurl
+    } do
+      {output, 0} =
+        System.cmd(
+          grpcurl,
+          [
+            "-plaintext",
+            "-d",
+            ~s({"message": "Discovered via Reflection!", "sequence": 100}),
+            "127.0.0.1:#{@port}",
+            "streaming.StreamingService/UnaryCall"
+          ],
+          stderr_to_stdout: true
+        )
+
+      assert output =~ ~s("result": "Processed: Discovered via Reflection!")
+      assert output =~ ~s("sequence": 101)
+      assert output =~ ~s("isFinal": true)
+    end
+  end
 end

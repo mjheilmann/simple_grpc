@@ -58,4 +58,14 @@ defmodule SimpleGrpc do
   Decodes a protobuf binary into an Elixir map.
   """
   defdelegate decode(message_or_mod, binary, schema_ctx \\ nil), to: Protobuf
+
+  @doc """
+  Enables gRPC Server Reflection (`grpc.reflection.v1` and `grpc.reflection.v1alpha`).
+  Options:
+  - `:only` - list of service names or module atoms to reflect
+  - `:except` - list of service names or module atoms to exclude
+  - `:services` - list of specific services or modules to reflect
+  - `:schemas` - list of `%SimpleGrpc.Schema{}` structs to reflect
+  """
+  defdelegate enable_reflection(opts \\ []), to: SimpleGrpc.Reflection.Server, as: :register
 end

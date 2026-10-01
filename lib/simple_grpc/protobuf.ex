@@ -804,6 +804,11 @@ defmodule SimpleGrpc.Protobuf do
 
   defp resolve_message_descriptor(%Message{} = msg, _ctx), do: msg
 
+  defp resolve_message_descriptor(name, %Schema{} = schema) when is_binary(name) do
+    Schema.message(schema, name) ||
+      throw({:error, "Message #{inspect(name)} not found in schema"})
+  end
+
   defp resolve_message_descriptor(module, _ctx) when is_atom(module) do
     if function_exported?(module, :__fields__, 0) do
       fields = module.__fields__()
@@ -865,9 +870,16 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   defp to_plain_map(kw) when is_list(kw) do
-    Enum.reduce(kw, %{}, fn {k, v}, acc ->
-      atom_key = if is_binary(k), do: String.to_atom(k), else: k
-      Map.put(acc, atom_key, v)
-    end)
+    if Keyword.keyword?(kw) do
+      Enum.reduce(kw, %{}, fn {k, v}, acc ->
+        atom_key = if is_binary(k), do: String.to_atom(k), else: k
+        Map.put(acc, atom_key, v)
+      end)
+    else
+      kw
+    end
   end
+
+  defp to_plain_map(nil), do: %{}
+  defp to_plain_map(other), do: other
 end
