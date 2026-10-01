@@ -14,7 +14,7 @@ defmodule SimpleGrpc.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger, :telemetry]
     ]
   end
 
@@ -26,7 +26,8 @@ defmodule SimpleGrpc.MixProject do
       {:briefly, "~> 0.5.0", only: :test},
       {:nimble_parsec, "~> 1.2"},
       {:bandit, "~> 1.0"},
-      {:plug, "~> 1.16"}
+      {:plug, "~> 1.16"},
+      {:telemetry, "~> 1.0 or ~> 1.2"}
     ]
   end
 end

@@ -41,6 +41,7 @@ defmodule SimpleGrpc.Plug do
 
   @impl true
   def call(conn, state) do
+    start_time = System.monotonic_time()
     path = conn.request_path
     state = normalize_state(state)
 
@@ -56,12 +57,15 @@ defmodule SimpleGrpc.Plug do
 
     case route_lookup do
       {:ok, route} ->
-        handle_grpc_request(conn, route)
+        emit_telemetry_start(conn, path, route, start_time)
+        handle_grpc_request(conn, route, start_time)
 
       :not_found ->
         if state.unmatched == :pass do
           conn
         else
+          emit_telemetry_start(conn, path, nil, start_time)
+          emit_telemetry_stop(conn, path, nil, nil, nil, 12, "unknown service or method: #{path}", start_time)
           send_trailers_only(conn, 12, "unknown service or method: #{path}")
         end
     end
@@ -141,32 +145,110 @@ defmodule SimpleGrpc.Plug do
 
   defp normalize_reflection_opts(_other, _schemas, _services), do: []
 
-  defp handle_grpc_request(conn, route) do
-    with {:ok, payload_bytes, conn} <- read_grpc_frame(conn),
-         {:ok, req_map} <- Protobuf.decode(route.input_message, payload_bytes, route.schema),
-         {:ok, resp_data} <- Dispatcher.dispatch(route, req_map, conn),
-         {:ok, resp_bytes} <- Protobuf.encode(route.output_message, resp_data, route.schema) do
-      framed_response = frame_grpc_message(resp_bytes)
-      send_grpc_response(conn, framed_response, 0, "")
-    else
-      {:error, status_code, message} when is_integer(status_code) ->
-        send_trailers_only(conn, status_code, to_string(message))
+  defp handle_grpc_request(conn, route, start_time) do
+    path = conn.request_path
 
-      {:error, reason} ->
+    try do
+      with {:ok, payload_bytes, conn} <- read_grpc_frame(conn),
+           {:ok, req_map} <- Protobuf.decode(route.input_message, payload_bytes, route.schema),
+           {:ok, resp_data} <- Dispatcher.dispatch(route, req_map, conn),
+           {:ok, resp_bytes} <- Protobuf.encode(route.output_message, resp_data, route.schema) do
+        emit_telemetry_stop(conn, path, route, req_map, resp_data, 0, "", start_time)
+        framed_response = frame_grpc_message(resp_bytes)
+        send_grpc_response(conn, framed_response, 0, "")
+      else
+        {:error, status_code, message} when is_integer(status_code) ->
+          msg_str = to_string(message)
+          emit_telemetry_stop(conn, path, route, nil, nil, status_code, msg_str, start_time)
+          send_trailers_only(conn, status_code, msg_str)
+
+        {:error, reason} ->
+          msg_str = inspect(reason)
+          emit_telemetry_stop(conn, path, route, nil, nil, 2, msg_str, start_time)
+          send_trailers_only(conn, 2, msg_str)
+      end
+    rescue
+      e in ArgumentError ->
+        msg_str = Exception.message(e)
+        emit_telemetry_exception(conn, path, route, :error, e, __STACKTRACE__, start_time)
+        send_trailers_only(conn, 3, msg_str)
+
+      e ->
+        msg_str = Exception.message(e)
+        emit_telemetry_exception(conn, path, route, :error, e, __STACKTRACE__, start_time)
+        send_trailers_only(conn, 2, msg_str)
+    catch
+      kind, reason ->
+        emit_telemetry_exception(conn, path, route, kind, reason, __STACKTRACE__, start_time)
         send_trailers_only(conn, 2, inspect(reason))
     end
-  rescue
-    e in ArgumentError ->
-      send_trailers_only(conn, 3, Exception.message(e))
+  end
 
-    e ->
-      send_trailers_only(conn, 2, Exception.message(e))
-  catch
-    :throw, reason ->
-      send_trailers_only(conn, 2, inspect(reason))
+  defp emit_telemetry_start(conn, path, route, start_time) do
+    meta = %{
+      path: path,
+      headers: conn.req_headers,
+      conn: conn,
+      service: route && route.service_name,
+      service_full_name: route && route.service_full_name,
+      rpc: route && route.rpc_name
+    }
 
-    :exit, reason ->
-      send_trailers_only(conn, 2, inspect(reason))
+    measurements = %{
+      system_time: System.system_time(),
+      monotonic_time: start_time
+    }
+
+    :telemetry.execute([:simple_grpc, :call, :start], measurements, meta)
+  end
+
+  defp emit_telemetry_stop(conn, path, route, req_map, resp_data, status_code, status_message, start_time) do
+    stop_time = System.monotonic_time()
+    duration = stop_time - start_time
+
+    meta = %{
+      path: path,
+      headers: conn.req_headers,
+      conn: conn,
+      request: req_map,
+      response: resp_data,
+      grpc_status: status_code,
+      grpc_message: status_message,
+      service: route && route.service_name,
+      service_full_name: route && route.service_full_name,
+      rpc: route && route.rpc_name
+    }
+
+    measurements = %{
+      duration: duration,
+      monotonic_time: stop_time
+    }
+
+    :telemetry.execute([:simple_grpc, :call, :stop], measurements, meta)
+  end
+
+  defp emit_telemetry_exception(conn, path, route, kind, reason, stacktrace, start_time) do
+    stop_time = System.monotonic_time()
+    duration = stop_time - start_time
+
+    meta = %{
+      path: path,
+      headers: conn.req_headers,
+      conn: conn,
+      kind: kind,
+      reason: reason,
+      stacktrace: stacktrace,
+      service: route && route.service_name,
+      service_full_name: route && route.service_full_name,
+      rpc: route && route.rpc_name
+    }
+
+    measurements = %{
+      duration: duration,
+      monotonic_time: stop_time
+    }
+
+    :telemetry.execute([:simple_grpc, :call, :exception], measurements, meta)
   end
 
   defp send_grpc_response(conn, framed_response, status_code, status_message) do
