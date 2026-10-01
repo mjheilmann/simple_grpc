@@ -99,4 +99,43 @@ defmodule SimpleGrpc.Parser.Proto3Test do
     ast = parse_proto!("well_known_types/well_known_types.proto")
     assert_no_unhandled(ast, "well_known_types.proto")
   end
+
+  test "returns clear error when proto2 is encountered" do
+    assert {:error, msg} =
+             SimpleGrpc.Parser.parse("priv/protos/proto2_features/proto2_features.proto")
+
+    assert msg =~ "invalid proto file, proto2 syntax is not supported"
+  end
+
+  test "returns clear error when syntax declaration is missing" do
+    invalid_proto = "message MissingSyntax { string name = 1; }"
+    tmp_path = Path.join(System.tmp_dir!(), "missing_syntax.proto")
+    File.write!(tmp_path, invalid_proto)
+
+    on_exit(fn -> File.rm(tmp_path) end)
+
+    assert {:error, msg} = SimpleGrpc.Parser.parse(tmp_path)
+    assert msg =~ "invalid proto file, no syntax declaration"
+  end
+
+  test "returns clear error when protobuf editions are encountered" do
+    edition_proto_1 = "edition = \"2023\";\npackage test;\nmessage M { int32 x = 1; }"
+    tmp_path_1 = Path.join(System.tmp_dir!(), "editions_1.proto")
+    File.write!(tmp_path_1, edition_proto_1)
+
+    edition_proto_2 = "syntax = \"editions\";\npackage test;\nmessage M { int32 x = 1; }"
+    tmp_path_2 = Path.join(System.tmp_dir!(), "editions_2.proto")
+    File.write!(tmp_path_2, edition_proto_2)
+
+    on_exit(fn ->
+      File.rm(tmp_path_1)
+      File.rm(tmp_path_2)
+    end)
+
+    assert {:error, msg1} = SimpleGrpc.Parser.parse(tmp_path_1)
+    assert msg1 =~ "invalid proto file, protobuf editions are not supported"
+
+    assert {:error, msg2} = SimpleGrpc.Parser.parse(tmp_path_2)
+    assert msg2 =~ "invalid proto file, protobuf editions are not supported"
+  end
 end

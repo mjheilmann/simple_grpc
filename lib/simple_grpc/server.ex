@@ -12,9 +12,19 @@ defmodule SimpleGrpc.Server do
     server_file = Keyword.fetch!(opts, :server_file)
     target_service = Keyword.get(opts, :service)
 
-    {:proto3, default_service_name, ast} = SimpleGrpc.Parser.parse!(server_file)
+    {:proto3, ast} = SimpleGrpc.Parser.parse!(server_file)
+
+    default_service_name =
+      Enum.find_value(ast, fn
+        {:service, [name | _]} when is_binary(name) -> name
+        _ -> nil
+      end)
 
     service_name = target_service || default_service_name
+
+    if is_nil(service_name) do
+      throw({:error, "service definition not found in #{server_file}"})
+    end
 
     package =
       Enum.find_value(ast, fn
@@ -36,7 +46,7 @@ defmodule SimpleGrpc.Server do
       end)
 
     if is_nil(service_ast) do
-      raise ArgumentError, "Service #{inspect(service_name)} not found in #{server_file}"
+      throw({:error, "service definition not found in #{server_file}"})
     end
 
     rpcs =

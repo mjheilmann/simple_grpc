@@ -207,6 +207,98 @@ defmodule SimpleGrpc.ProtobufTest do
       assert is_nil(decoded2[:success_msg])
     end
 
+    test "oneof last-variant-wins when multiple variants arrive in the same binary payload" do
+      msg = %Message{
+        name: "OneofMessage",
+        fields: [
+          %Field{
+            name: :result,
+            kind: :oneof,
+            fields: [
+              %Field{name: :success_msg, number: 1, type: "string", kind: :field},
+              %Field{name: :error_code, number: 2, type: "int32", kind: :field},
+              %Field{name: :raw_status, number: 3, type: "int64", kind: :field}
+            ]
+          }
+        ],
+        fields_by_number: %{
+          1 => %Field{name: :success_msg, number: 1, type: "string", kind: :field},
+          2 => %Field{name: :error_code, number: 2, type: "int32", kind: :field},
+          3 => %Field{name: :raw_status, number: 3, type: "int64", kind: :field}
+        }
+      }
+
+      # Variant 1: success_msg = "first"
+      # Tag 1 (wire type 2 -> 0x0A), len 5, "first"
+      enc1 = <<0x0A, 5, "first">>
+
+      # Variant 2: error_code = 500
+      # Tag 2 (wire type 0 -> 0x10), varint 500 -> <<0xF4, 0x03>>
+      enc2 = <<0x10, 0xF4, 0x03>>
+
+      # Variant 3: raw_status = 1234
+      # Tag 3 (wire type 0 -> 0x18), varint 1234 -> <<0xD2, 0x09>>
+      enc3 = <<0x18, 0xD2, 0x09>>
+
+      # Case A: enc1 followed by enc2 -> enc2 wins
+      combined_1_2 = enc1 <> enc2
+      decoded_1_2 = Protobuf.decode!(msg, combined_1_2)
+      assert decoded_1_2.error_code == 500
+      assert is_nil(decoded_1_2.success_msg)
+      assert is_nil(decoded_1_2.raw_status)
+
+      # Case B: enc2 followed by enc1 -> enc1 wins
+      combined_2_1 = enc2 <> enc1
+      decoded_2_1 = Protobuf.decode!(msg, combined_2_1)
+      assert decoded_2_1.success_msg == "first"
+      assert is_nil(decoded_2_1.error_code)
+      assert is_nil(decoded_2_1.raw_status)
+
+      # Case C: enc1 followed by enc2 followed by enc3 -> enc3 wins
+      combined_1_2_3 = enc1 <> enc2 <> enc3
+      decoded_1_2_3 = Protobuf.decode!(msg, combined_1_2_3)
+      assert decoded_1_2_3.raw_status == 1234
+      assert is_nil(decoded_1_2_3.success_msg)
+      assert is_nil(decoded_1_2_3.error_code)
+    end
+
+    test "oneof explicitly populates unset variants as nil when decoding empty or partial payloads" do
+      msg = %Message{
+        name: "OneofMessage",
+        fields: [
+          %Field{name: :regular_field, number: 1, type: "string", kind: :field},
+          %Field{
+            name: :choice,
+            kind: :oneof,
+            fields: [
+              %Field{name: :opt_a, number: 2, type: "string", kind: :field},
+              %Field{name: :opt_b, number: 3, type: "int32", kind: :field}
+            ]
+          }
+        ],
+        fields_by_number: %{
+          1 => %Field{name: :regular_field, number: 1, type: "string", kind: :field},
+          2 => %Field{name: :opt_a, number: 2, type: "string", kind: :field},
+          3 => %Field{name: :opt_b, number: 3, type: "int32", kind: :field}
+        }
+      }
+
+      # Empty payload
+      decoded_empty = Protobuf.decode!(msg, <<>>)
+      assert decoded_empty.regular_field == ""
+      assert Map.has_key?(decoded_empty, :opt_a)
+      assert is_nil(decoded_empty.opt_a)
+      assert Map.has_key?(decoded_empty, :opt_b)
+      assert is_nil(decoded_empty.opt_b)
+
+      # Only regular field set
+      enc_reg = Protobuf.encode!(msg, %{regular_field: "hello"})
+      decoded_reg = Protobuf.decode!(msg, enc_reg)
+      assert decoded_reg.regular_field == "hello"
+      assert is_nil(decoded_reg.opt_a)
+      assert is_nil(decoded_reg.opt_b)
+    end
+
     test "gracefully skips unknown wire fields during decode" do
       # Message on wire has fields 1 and 2
       wire_msg = %Message{
