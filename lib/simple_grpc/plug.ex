@@ -22,8 +22,13 @@ defmodule SimpleGrpc.Plug do
         handle_grpc_request(conn, route)
 
       :not_found ->
-        # Send gRPC 12 (UNIMPLEMENTED) as Trailers-Only response
-        send_trailers_only(conn, 12, "unknown service or method: #{path}")
+        # Drain request body if any, then send trailers-only UNIMPLEMENTED (12)
+        with {:ok, _body, conn} <- read_all_body(conn, <<>>) do
+          send_trailers_only(conn, 12, "unknown service or method: #{path}")
+        else
+          _ ->
+            send_trailers_only(conn, 12, "unknown service or method: #{path}")
+        end
     end
   end
 
@@ -31,7 +36,7 @@ defmodule SimpleGrpc.Plug do
     with {:ok, body, conn} <- read_all_body(conn, <<>>),
          {:ok, payload_bytes} <- unframe_grpc_message(body),
          {:ok, req_map} <- Protobuf.decode(route.input_message, payload_bytes, route.schema),
-         {:ok, resp_data} <- Dispatcher.dispatch(route, req_map),
+         {:ok, resp_data} <- Dispatcher.dispatch(route, req_map, conn),
          {:ok, resp_bytes} <- Protobuf.encode(route.output_message, resp_data, route.schema) do
       framed_response = frame_grpc_message(resp_bytes)
       send_grpc_response(conn, framed_response, 0, "")
@@ -89,11 +94,27 @@ defmodule SimpleGrpc.Plug do
   end
 
   defp send_trailers_only(conn, status_code, status_message) do
-    conn
-    |> put_resp_header("content-type", "application/grpc")
-    |> put_resp_header("grpc-status", to_string(status_code))
-    |> put_resp_header("grpc-message", to_string(status_message))
-    |> send_resp(200, "")
+    headers = [
+      {"content-type", "application/grpc"},
+      {"grpc-status", to_string(status_code)},
+      {"grpc-message", to_string(status_message)}
+    ]
+
+    case conn.adapter do
+      {Bandit.Adapter,
+       %Bandit.Adapter{
+         transport: %Bandit.HTTP2.Stream{connection_pid: conn_pid, stream_id: stream_id}
+       }} ->
+        send(conn_pid, {{:send_headers, headers, true}, stream_id})
+        conn
+
+      _other ->
+        conn
+        |> put_resp_header("content-type", "application/grpc")
+        |> put_resp_header("grpc-status", to_string(status_code))
+        |> put_resp_header("grpc-message", to_string(status_message))
+        |> send_resp(200, "")
+    end
   end
 
   defp read_all_body(conn, acc) do

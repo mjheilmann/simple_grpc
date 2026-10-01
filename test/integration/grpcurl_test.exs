@@ -112,4 +112,152 @@ defmodule SimpleGrpc.GrpcurlTest do
     assert output2 =~ ~s("result": "dynamic_v2: Runtime Test")
     assert output2 =~ ~s("sequence": 50)
   end
+
+  test "grpcurl receives standard gRPC error status and message from handler", %{grpcurl: grpcurl} do
+    # Register a dynamic handler that returns a NotFound (code 5) gRPC error
+    {:ok, schema} = Schema.from_file(@proto_file)
+
+    SimpleGrpc.register_service(schema, %{
+      unary_call: fn %{message: _msg} ->
+        {:error, 5, "Requested user entity was not found in database"}
+      end
+    })
+
+    {output, exit_code} =
+      System.cmd(
+        grpcurl,
+        [
+          "-plaintext",
+          "-proto",
+          @proto_file,
+          "-d",
+          ~s({"message": "find user 999", "sequence": 1}),
+          "127.0.0.1:#{@port}",
+          "streaming.StreamingService/UnaryCall"
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert exit_code != 0
+    assert output =~ "NotFound" or output =~ "Code: 5"
+    assert output =~ "Requested user entity was not found in database"
+  end
+
+  test "grpcurl receives Unimplemented (12) for unknown service or method", %{grpcurl: grpcurl} do
+    unregistered_proto = "priv/protos/global_service.proto"
+
+    {output, exit_code} =
+      System.cmd(
+        grpcurl,
+        [
+          "-plaintext",
+          "-proto",
+          unregistered_proto,
+          "-d",
+          ~s({"data": "test"}),
+          "127.0.0.1:#{@port}",
+          "GlobalService/GlobalMethod"
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert exit_code != 0
+    assert output =~ "Unimplemented" or output =~ "Code: 12"
+    assert output =~ "unknown service or method"
+  end
+
+  test "grpcurl sends and handler receives HTTP/2 request headers / metadata", %{grpcurl: grpcurl} do
+    # Register a handler that extracts custom header from conn
+    {:ok, schema} = Schema.from_file(@proto_file)
+
+    SimpleGrpc.register_service(schema, %{
+      unary_call: fn %{message: msg}, conn ->
+        headers = if conn, do: conn.req_headers, else: []
+        api_key = Enum.find_value(headers, "none", fn {k, v} -> if k == "x-api-key", do: v end)
+
+        {:ok, %{result: "Auth: #{api_key} | Msg: #{msg}", sequence: 100, is_final: true}}
+      end
+    })
+
+    {output, 0} =
+      System.cmd(grpcurl, [
+        "-plaintext",
+        "-proto",
+        @proto_file,
+        "-H",
+        "x-api-key: my-super-secret-token-123",
+        "-d",
+        ~s({"message": "Authorized request", "sequence": 1}),
+        "127.0.0.1:#{@port}",
+        "streaming.StreamingService/UnaryCall"
+      ])
+
+    assert output =~ ~s("result": "Auth: my-super-secret-token-123 | Msg: Authorized request")
+    assert output =~ ~s("sequence": 100)
+  end
+
+  test "grpcurl invokes service with multi-file imports, nested submessages, enums, and WKT Timestamp",
+       %{grpcurl: grpcurl} do
+    proto_imports = "priv/protos/imports_test/imports_test.proto"
+    {:ok, schema} = Schema.from_file(proto_imports)
+
+    SimpleGrpc.register_service(schema, %{
+      create_user: fn %{name: name, email: _email, address: addr, location: loc, registered_at: reg_at} ->
+        {:ok,
+         %{
+           user_id: "user_created_#{name}",
+           priority: :CRITICAL,
+           created_at: %{
+             seconds: (reg_at && reg_at.seconds) || 1_700_000_000,
+             nanos: 0
+           },
+           profile: %{
+             billing_address: addr,
+             shipping_address: addr,
+             recent_locations: [loc]
+           }
+         }}
+      end
+    })
+
+    request_payload = ~s({
+      "name": "Alice Wonderland",
+      "email": "alice@example.com",
+      "address": {
+        "street": "100 Market St",
+        "city": "San Francisco",
+        "state": "CA",
+        "postalCode": "94105",
+        "country": "USA"
+      },
+      "location": {
+        "latitude": 37.7937,
+        "longitude": -122.3965,
+        "altitude": 10.5
+      },
+      "registeredAt": "2026-10-01T12:00:00Z"
+    })
+
+    {output, 0} =
+      System.cmd(
+        grpcurl,
+        [
+          "-plaintext",
+          "-proto",
+          proto_imports,
+          "-import-path",
+          "priv/protos",
+          "-d",
+          request_payload,
+          "127.0.0.1:#{@port}",
+          "imports_test.ImportTestService/CreateUser"
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert output =~ ~s("userId": "user_created_Alice Wonderland")
+    assert output =~ ~s("CRITICAL")
+    assert output =~ ~s("100 Market St")
+    assert output =~ ~s("San Francisco")
+  end
 end

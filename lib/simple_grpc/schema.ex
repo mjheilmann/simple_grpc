@@ -226,26 +226,26 @@ defmodule SimpleGrpc.Schema do
       end)
       |> Map.new()
 
-    messages =
+    top_messages =
       ast
       |> Enum.filter(fn
         {:message, _} -> true
         _ -> false
       end)
-      |> Enum.flat_map(fn m_ast ->
+      |> Enum.map(fn m_ast ->
         msg = Message.parse(m_ast)
         full_name = if package && package != "", do: "#{package}.#{msg.name}", else: msg.name
-        msg = %{msg | full_name: full_name}
-
-        if full_name != msg.name do
-          [{msg.name, msg}, {full_name, msg}]
-        else
-          [{msg.name, msg}]
-        end
+        %{msg | full_name: full_name}
       end)
+
+    messages =
+      Enum.flat_map(top_messages, &flatten_message_entries/1)
       |> Map.new()
 
-    enums =
+    nested_enums_from_messages =
+      Enum.flat_map(top_messages, &flatten_nested_enums/1)
+
+    top_enums =
       ast
       |> Enum.filter(fn
         {:enum, _} -> true
@@ -261,7 +261,8 @@ defmodule SimpleGrpc.Schema do
           [{enum.name, enum}]
         end
       end)
-      |> Map.new()
+
+    enums = Map.new(top_enums ++ nested_enums_from_messages)
 
     options =
       Enum.reduce(ast, %{}, fn
@@ -533,5 +534,52 @@ defmodule SimpleGrpc.Schema do
 
     (field_types ++ nested_types)
     |> Enum.reject(&(&1 in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64 float double bool string bytes)))
+  end
+
+  defp flatten_message_entries(%Message{} = msg) do
+    base_entries =
+      if msg.full_name && msg.full_name != msg.name do
+        [{msg.name, msg}, {msg.full_name, msg}]
+      else
+        [{msg.name, msg}]
+      end
+
+    nested_entries =
+      Enum.flat_map(msg.nested_messages, fn nested ->
+        nested_full_name =
+          if msg.full_name, do: "#{msg.full_name}.#{nested.name}", else: "#{msg.name}.#{nested.name}"
+
+        nested = %{nested | full_name: nested_full_name}
+
+        [
+          {nested.name, nested},
+          {"#{msg.name}.#{nested.name}", nested},
+          {nested_full_name, nested}
+          | flatten_message_entries(nested)
+        ]
+      end)
+
+    base_entries ++ nested_entries
+  end
+
+  defp flatten_nested_enums(%Message{
+         nested_enums: nested_enums,
+         nested_messages: nested_messages,
+         name: msg_name,
+         full_name: full_name
+       }) do
+    direct =
+      Enum.flat_map(nested_enums, fn enum ->
+        enum_full = if full_name, do: "#{full_name}.#{enum.name}", else: "#{msg_name}.#{enum.name}"
+
+        [
+          {enum.name, enum},
+          {"#{msg_name}.#{enum.name}", enum},
+          {enum_full, enum}
+        ]
+      end)
+
+    nested = Enum.flat_map(nested_messages, &flatten_nested_enums/1)
+    direct ++ nested
   end
 end
