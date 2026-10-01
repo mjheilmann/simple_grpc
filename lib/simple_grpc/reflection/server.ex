@@ -55,7 +55,23 @@ defmodule SimpleGrpc.Reflection.Server do
   """
   def server_reflection_info(req, stream \\ nil, opts \\ [])
 
-  def server_reflection_info(req, _stream, opts) when is_map(req) do
+  def server_reflection_info(req, _stream, opts) do
+    cond do
+      is_struct(req, Stream) or is_function(req, 2) or (is_list(req) and not Keyword.keyword?(req)) ->
+        Stream.map(req, fn single_req ->
+          {:ok, resp} = process_reflection_request(single_req, opts)
+          resp
+        end)
+
+      is_map(req) or (is_list(req) and Keyword.keyword?(req)) ->
+        process_reflection_request(req, opts)
+
+      true ->
+        {:error, 3, "Invalid reflection request"}
+    end
+  end
+
+  defp process_reflection_request(req, opts) do
     req_map = normalize_keys(req)
     host = Map.get(req_map, :host, "")
 

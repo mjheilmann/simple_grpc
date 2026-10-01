@@ -149,23 +149,55 @@ defmodule SimpleGrpc.Plug do
     path = conn.request_path
 
     try do
-      with {:ok, payload_bytes, conn} <- read_grpc_frame(conn),
-           {:ok, req_map} <- Protobuf.decode(route.input_message, payload_bytes, route.schema),
-           {:ok, resp_data} <- Dispatcher.dispatch(route, req_map, conn),
-           {:ok, resp_bytes} <- Protobuf.encode(route.output_message, resp_data, route.schema) do
-        emit_telemetry_stop(conn, path, route, req_map, resp_data, 0, "", start_time)
-        framed_response = frame_grpc_message(resp_bytes)
-        send_grpc_response(conn, framed_response, 0, "")
-      else
-        {:error, status_code, message} when is_integer(status_code) ->
-          msg_str = to_string(message)
-          emit_telemetry_stop(conn, path, route, nil, nil, status_code, msg_str, start_time)
-          send_trailers_only(conn, status_code, msg_str)
+      {req_arg, initial_payload_for_telemetry, conn} =
+        if route.request_stream do
+          req_stream = build_request_stream(conn, route)
+          {req_stream, nil, conn}
+        else
+          case read_grpc_frame(conn, <<>>) do
+            {:ok, payload_bytes, conn, _rest} ->
+              case Protobuf.decode(route.input_message, payload_bytes, route.schema) do
+                {:ok, req_map} ->
+                  {req_map, req_map, conn}
 
-        {:error, reason} ->
-          msg_str = inspect(reason)
-          emit_telemetry_stop(conn, path, route, nil, nil, 2, msg_str, start_time)
-          send_trailers_only(conn, 2, msg_str)
+                {:error, code, msg} ->
+                  throw({:error, code, msg})
+              end
+
+            {:eof, conn} ->
+              case Protobuf.decode(route.input_message, <<>>, route.schema) do
+                {:ok, req_map} ->
+                  {req_map, req_map, conn}
+
+                {:error, code, msg} ->
+                  throw({:error, code, msg})
+              end
+
+            {:error, reason} ->
+              throw({:error, 3, "Invalid gRPC frame: #{inspect(reason)}"})
+          end
+        end
+
+      case Dispatcher.dispatch(route, req_arg, conn) do
+        {:ok, resp_data} ->
+          if route.response_stream or is_enumerable_stream(resp_data, route) do
+            send_streaming_grpc_response(conn, route, resp_data, start_time)
+          else
+            case Protobuf.encode(route.output_message, resp_data, route.schema) do
+              {:ok, resp_bytes} ->
+                emit_telemetry_stop(conn, path, route, initial_payload_for_telemetry, resp_data, 0, "", start_time)
+                framed_response = frame_grpc_message(resp_bytes)
+                send_grpc_response(conn, framed_response, 0, "")
+
+              {:error, code, msg} ->
+                throw({:error, code, msg})
+            end
+          end
+
+        {:error, status_code, message} ->
+          msg_str = to_string(message)
+          emit_telemetry_stop(conn, path, route, initial_payload_for_telemetry, nil, status_code, msg_str, start_time)
+          send_trailers_only(conn, status_code, msg_str)
       end
     rescue
       e in ArgumentError ->
@@ -181,6 +213,97 @@ defmodule SimpleGrpc.Plug do
       kind, reason ->
         emit_telemetry_exception(conn, path, route, kind, reason, __STACKTRACE__, start_time)
         send_trailers_only(conn, 2, inspect(reason))
+    end
+  end
+
+  defp is_enumerable_stream(data, route) do
+    route.response_stream or is_struct(data, Stream) or is_function(data, 2) or
+      (is_list(data) and route.response_stream)
+  end
+
+  defp build_request_stream(conn, route, initial_acc \\ <<>>) do
+    Stream.resource(
+      fn -> {conn, initial_acc, false} end,
+      fn
+        {conn, _acc, true} ->
+          {:halt, {conn, <<>>, true}}
+
+        {conn, acc, false} ->
+          case read_grpc_frame(conn, acc) do
+            {:ok, payload, conn, rest} ->
+              case Protobuf.decode(route.input_message, payload, route.schema) do
+                {:ok, decoded} ->
+                  {[decoded], {conn, rest, false}}
+
+                {:error, _code, reason} ->
+                  raise RuntimeError, "Failed to decode streaming request: #{reason}"
+              end
+
+            {:eof, conn} ->
+              {:halt, {conn, <<>>, true}}
+
+            {:error, _reason} ->
+              {:halt, {conn, <<>>, true}}
+          end
+      end,
+      fn _ -> :ok end
+    )
+  end
+
+  defp send_streaming_grpc_response(conn, route, resp_enumerable, start_time) do
+    path = conn.request_path
+    trailers = [
+      {"grpc-status", "0"},
+      {"grpc-message", ""}
+    ]
+
+    case conn.adapter do
+      {Bandit.Adapter,
+       %Bandit.Adapter{
+         transport: %Bandit.HTTP2.Stream{connection_pid: conn_pid, stream_id: stream_id}
+       }} ->
+        conn =
+          conn
+          |> put_resp_header("content-type", "application/grpc")
+          |> put_resp_header("grpc-accept-encoding", "identity")
+          |> send_chunked(200)
+
+        conn =
+          Enum.reduce(resp_enumerable, conn, fn item, conn_acc ->
+            case Protobuf.encode(route.output_message, item, route.schema) do
+              {:ok, resp_bytes} ->
+                framed = frame_grpc_message(resp_bytes)
+                {:ok, conn_acc} = chunk(conn_acc, framed)
+                conn_acc
+
+              {:error, code, msg} ->
+                throw({:error, code, msg})
+            end
+          end)
+
+        emit_telemetry_stop(conn, path, route, nil, :stream, 0, "", start_time)
+
+        # Send trailing headers (trailers) with END_STREAM flag on HTTP/2
+        send(conn_pid, {{:send_headers, trailers, true}, stream_id})
+        conn
+
+      _other ->
+        conn =
+          conn
+          |> put_resp_header("content-type", "application/grpc")
+          |> put_resp_header("grpc-accept-encoding", "identity")
+          |> send_chunked(200)
+
+        conn =
+          Enum.reduce(resp_enumerable, conn, fn item, conn_acc ->
+            {:ok, resp_bytes} = Protobuf.encode(route.output_message, item, route.schema)
+            framed = frame_grpc_message(resp_bytes)
+            {:ok, conn_acc} = chunk(conn_acc, framed)
+            conn_acc
+          end)
+
+        emit_telemetry_stop(conn, path, route, nil, :stream, 0, "", start_time)
+        conn
     end
   end
 
@@ -307,10 +430,10 @@ defmodule SimpleGrpc.Plug do
     end
   end
 
-  defp read_grpc_frame(conn, acc \\ <<>>) do
+  defp read_grpc_frame(conn, acc) do
     case acc do
-      <<_compressed::8, length::32-big, payload::binary-size(length), _rest::binary>> ->
-        {:ok, payload, conn}
+      <<_compressed::8, length::32-big, payload::binary-size(length), rest::binary>> ->
+        {:ok, payload, conn, rest}
 
       <<_compressed::8, length::32-big, partial::binary>> ->
         needed = length - byte_size(partial)
@@ -320,8 +443,11 @@ defmodule SimpleGrpc.Plug do
             acc2 = acc <> chunk
 
             case acc2 do
-              <<_compressed::8, ^length::32-big, payload::binary-size(^length), _rest::binary>> ->
-                {:ok, payload, conn}
+              <<_compressed::8, ^length::32-big, payload::binary-size(^length), rest::binary>> ->
+                {:ok, payload, conn, rest}
+
+              <<>> ->
+                {:eof, conn}
 
               _ ->
                 {:error, "incomplete gRPC payload frame"}
@@ -340,14 +466,14 @@ defmodule SimpleGrpc.Plug do
             acc2 = acc <> chunk
 
             case acc2 do
-              <<_compressed::8, length::32-big, payload::binary-size(length), _rest::binary>> ->
-                {:ok, payload, conn}
+              <<_compressed::8, length::32-big, payload::binary-size(length), rest::binary>> ->
+                {:ok, payload, conn, rest}
 
               <<_compressed::8, _length::32-big, _partial::binary>> ->
                 read_grpc_frame(conn, acc2)
 
               <<>> ->
-                {:ok, <<>>, conn}
+                {:eof, conn}
 
               _ ->
                 {:error, "incomplete gRPC header frame"}

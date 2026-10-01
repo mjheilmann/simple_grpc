@@ -264,11 +264,48 @@ defmodule SimpleGrpc.Server do
             __MODULE__
           )
 
-        req = req_mod.new(request_payload)
+        req =
+          cond do
+            rpc.request_stream and (is_struct(request_payload, Stream) or is_function(request_payload, 2)) ->
+              Stream.map(request_payload, &req_mod.new/1)
+
+            is_struct(request_payload, req_mod) ->
+              request_payload
+
+            is_map(request_payload) or (is_list(request_payload) and Keyword.keyword?(request_payload)) ->
+              req_mod.new(request_payload)
+
+            rpc.request_stream and is_list(request_payload) ->
+              Enum.map(request_payload, &req_mod.new/1)
+
+            true ->
+              request_payload
+          end
 
         case SimpleGrpc.Server.dispatch_handler(__MODULE__, __handlers__(), rpc.name, req, stream) do
-          {:ok, data} -> resp_mod.new(data)
-          {:error, _code, message} -> raise RuntimeError, message
+          {:ok, data} ->
+            cond do
+              is_struct(data, Stream) or is_function(data, 2) ->
+                Stream.map(data, &resp_mod.new/1)
+
+              is_list(data) and Keyword.keyword?(data) and data != [] ->
+                resp_mod.new(data)
+
+              is_list(data) and rpc.response_stream ->
+                Enum.map(data, &resp_mod.new/1)
+
+              is_struct(data, resp_mod) ->
+                data
+
+              is_map(data) ->
+                resp_mod.new(data)
+
+              true ->
+                data
+            end
+
+          {:error, _code, message} ->
+            raise RuntimeError, message
         end
       end
     end
