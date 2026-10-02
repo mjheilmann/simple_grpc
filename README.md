@@ -1,21 +1,200 @@
 # SimpleGrpc
 
-**TODO: Add description**
+A lightweight, high-performance, and purely idiomatic gRPC framework for Elixir.
+
+- **Zero External Compilers**: No `protoc` binary or C/NIF dependencies required. Parses `.proto` files directly in pure Elixir at compile-time or runtime.
+- **Plug & Bandit Native**: Operates as a standard Elixir `Plug` over HTTP/2 with [Bandit](https://github.com/mtrudel/bandit).
+- **Pure Elixir HTTP/2 Client**: Native HTTP/2 client transport powered by [Mint](https://github.com/elixir-mint/mint).
+- **Lightning-Fast In-Memory Testing**: Includes `SimpleGrpc.Case` and an in-memory Plug adapter to test services with zero TCP overhead.
+- **Built-in Reflection**: First-class support for `grpc.reflection.v1` and `grpc.reflection.v1alpha` out of the box.
+- **Full Streaming Support**: Unary, Server Streaming, Client Streaming, and Bidirectional Streaming.
+- **Telemetry Ready**: Native `:telemetry` instrumentation on both client and server.
+
+---
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `simple_grpc` to your list of dependencies in `mix.exs`:
+Add `simple_grpc` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:simple_grpc, "~> 0.1.0"}
+    {:simple_grpc, "~> 0.1.0"},
+    {:bandit, "~> 1.0"}
   ]
 end
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/simple_grpc>.
+---
+
+## Defining a Server
+
+Define a gRPC service module pointing to your `.proto` file:
+
+```elixir
+defmodule MyEchoServer do
+  use SimpleGrpc.Server,
+    server_file: "priv/protos/echo_service.proto"
+
+  # In-module handler for Echo RPC
+  def echo(%{message: msg}, _stream) do
+    {:ok, %{reply: "Echo: " <> msg}}
+  end
+end
+```
+
+### Running with Bandit / Plug
+
+Add `SimpleGrpc.Plug` to your application supervision tree:
+
+```elixir
+# In application.ex or endpoint
+children = [
+  {Bandit, plug: SimpleGrpc.Plug, port: 50051}
+]
+
+# Register services with SimpleGrpc
+SimpleGrpc.register_service(MyEchoServer)
+```
+
+You can also isolate services to specific Plugs or enable gRPC Server Reflection:
+
+```elixir
+# Plug with isolated services and scoped reflection
+plug SimpleGrpc.Plug,
+  services: [MyEchoServer],
+  reflection: [only: [MyEchoServer]]
+```
+
+---
+
+## Testing with In-Memory Plug (`SimpleGrpc.Case`)
+
+`SimpleGrpc` provides `SimpleGrpc.Case` (an `ExUnit.CaseTemplate`) for testing your gRPC services and plugs directly in-memory without starting Bandit or binding a TCP port.
+
+### Basic Integration Test
+
+```elixir
+defmodule MyEchoServerTest do
+  use SimpleGrpc.Case, plug: SimpleGrpc.Plug
+
+  setup do
+    SimpleGrpc.Registry.clear()
+    SimpleGrpc.register_service(MyEchoServer)
+    :ok
+  end
+
+  test "invokes Echo RPC in-memory", %{conn: conn} do
+    # 1. Encode protobuf request payload
+    schema = MyEchoServer.__schema__()
+    req_bytes = SimpleGrpc.Protobuf.encode!("EchoRequest", %{message: "Ping"}, schema)
+
+    # 2. Call the service in-memory via grpc_call helper
+    {:ok, resp_bytes, headers, _trailers} =
+      grpc_call(conn, "/echo.EchoService/Echo", req_bytes)
+
+    # 3. Decode and assert response
+    {:ok, resp} = SimpleGrpc.Protobuf.decode("EchoResponse", resp_bytes, schema)
+    assert resp.reply == "Echo: Ping"
+  end
+end
+```
+
+### Testing Streaming Calls In-Memory
+
+Use `grpc_stream/4` to test server, client, or bidirectional streaming:
+
+```elixir
+test "tests server streaming in-memory", %{conn: conn} do
+  schema = MyStreamingServer.__schema__()
+  req_bytes = SimpleGrpc.Protobuf.encode!("StreamRequest", %{message: "Start"}, schema)
+
+  {:ok, resp_stream, _headers, _trailers} =
+    grpc_stream(conn, "/streaming.StreamingService/ServerStreamingCall", req_bytes)
+
+  items =
+    resp_stream
+    |> Enum.map(fn chunk ->
+      {:ok, decoded} = SimpleGrpc.Protobuf.decode("StreamResponse", chunk, schema)
+      decoded
+    end)
+
+  assert length(items) == 3
+end
+```
+
+### Custom Plug Options & Per-Test Overrides
+
+You can configure options globally in `use SimpleGrpc.Case` or override them per-test using ExUnit tags:
+
+```elixir
+defmodule CustomPlugTest do
+  use SimpleGrpc.Case, plug: CustomGrpcPlug
+
+  # Overrides the plug target specifically for this test case
+  @tag plug: IsolatedServicePlug
+  test "calls isolated plug", %{conn: conn} do
+    # conn is connected directly to IsolatedServicePlug
+    {:ok, resp_bytes, _h, _t} = grpc_call(conn, "/custom.Service/Action", req_bytes)
+    assert resp_bytes != nil
+  end
+end
+```
+
+---
+
+## Client Usage
+
+`SimpleGrpc.Client` connects over network HTTP/2 (via Mint) or directly in-memory (via Plug):
+
+```elixir
+# 1. Connect over HTTP/2 TCP
+{:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:50051", adapter: :mint)
+
+# 2. Send Unary RPC
+{:ok, resp_bytes, headers, trailers} =
+  SimpleGrpc.Client.send_unary(conn, "/echo.EchoService/Echo", req_bytes)
+
+# 3. Send Streaming RPC
+{:ok, resp_stream, headers, trailers} =
+  SimpleGrpc.Client.send_stream(conn, "/streaming.StreamingService/ServerStreamingCall", req_bytes)
+
+# 4. Close connection
+:ok = SimpleGrpc.Client.close(conn)
+```
+
+---
+
+## gRPC Reflection
+
+`SimpleGrpc` includes built-in reflection compatible with `grpcurl`, Postman, and BloomRPC:
+
+```elixir
+# Enable reflection on all registered services
+SimpleGrpc.enable_reflection()
+```
+
+Inspect services and invoke methods without providing `.proto` files:
+
+```bash
+# Discover services
+grpcurl -plaintext localhost:50051 list
+
+# Describe a service
+grpcurl -plaintext localhost:50051 describe streaming.StreamingService
+
+# Invoke an RPC directly via reflection
+grpcurl -plaintext -d '{"message": "Hello!"}' localhost:50051 streaming.StreamingService/UnaryCall
+```
+
+---
+
+## Telemetry Events
+
+`SimpleGrpc` emits `:telemetry` events on both the server and client:
+
+- Server Lifecycle:
+  - `[:simple_grpc, :call, :start]` — `%{path: path, headers: req_headers}`
+  - `[:simple_grpc, :call, :stop]` — measurements: `%{duration: duration}`, metadata: `%{path: path, request: req, response: resp, grpc_status: status}`
+  - `[:simple_grpc, :call, :exception]` — `%{path: path, kind: kind, reason: reason, stacktrace: stacktrace}`
 
