@@ -27,6 +27,8 @@ defmodule SimpleGrpc.MixProject do
       {:nimble_parsec, "~> 1.2"},
       {:bandit, "~> 1.0"},
       {:plug, "~> 1.16"},
+      {:mint, "~> 1.6"},
+      {:castore, "~> 1.0", optional: true},
       {:telemetry, "~> 1.0 or ~> 1.2"}
     ]
   end
