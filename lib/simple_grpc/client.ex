@@ -4,6 +4,11 @@ defmodule SimpleGrpc.Client do
   """
 
   alias SimpleGrpc.Client.Conn
+  alias SimpleGrpc.Client.DSL
+
+  defmacro __using__(opts) do
+    DSL.generate(opts, __CALLER__.module)
+  end
 
   @doc """
   Connects to a gRPC server target using the specified or auto-detected adapter.
