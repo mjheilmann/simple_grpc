@@ -102,15 +102,17 @@ defmodule SimpleGrpc.Client do
   @doc """
   Sends a unary RPC request to the given canonical gRPC path with an encoded binary payload.
   """
-  def send_unary(%Conn{adapter: adapter, state: state}, path, payload, opts \\ []) do
-    adapter.send_unary(state, path, payload, opts)
+  def send_unary(%Conn{adapter: adapter, state: state} = conn, path, payload, opts \\ []) do
+    merged_opts = SimpleGrpc.Client.Headers.merge_opts(conn, opts)
+    adapter.send_unary(state, path, payload, merged_opts)
   end
 
   @doc """
   Sends a streaming RPC request to the given canonical gRPC path.
   """
-  def send_stream(%Conn{adapter: adapter, state: state}, path, request_data, opts \\ []) do
-    adapter.send_stream(state, path, request_data, opts)
+  def send_stream(%Conn{adapter: adapter, state: state} = conn, path, request_data, opts \\ []) do
+    merged_opts = SimpleGrpc.Client.Headers.merge_opts(conn, opts)
+    adapter.send_stream(state, path, request_data, merged_opts)
   end
 
   # ---------------------------------------------------------------------------
@@ -211,79 +213,112 @@ defmodule SimpleGrpc.Client do
   defp extract_service_symbol(_), do: nil
 
   defp invoke_dynamic_rpc(conn, %SimpleGrpc.Schema.RPC{} = rpc, payload, schema, opts) do
-    if rpc.request_stream or rpc.response_stream do
-      encoded_data =
-        if rpc.request_stream do
-          cond do
-            is_struct(payload, Stream) or is_function(payload, 2) or is_list(payload) ->
-              Stream.map(payload, fn item ->
-                SimpleGrpc.Protobuf.encode!(rpc.input, item, schema)
-              end)
+    merged_opts = SimpleGrpc.Client.Headers.merge_opts(conn, opts)
+    headers = Keyword.get(merged_opts, :headers, [])
+    service_full_name = extract_service_prefix(rpc.path)
+    service_name = extract_service_name(service_full_name)
 
-            true ->
-              [SimpleGrpc.Protobuf.encode!(rpc.input, payload, schema)]
-          end
-        else
-          SimpleGrpc.Protobuf.encode!(rpc.input, payload, schema)
-        end
+    meta = %{
+      service: service_name,
+      service_full_name: service_full_name,
+      rpc: rpc.name,
+      path: rpc.path,
+      headers: headers,
+      request: payload,
+      adapter: conn.adapter,
+      conn: conn
+    }
 
-      case send_stream(conn, rpc.path, encoded_data, opts) do
-        {:ok, resp_stream, _headers, _trailers} ->
-          if rpc.response_stream do
-            decoded_stream =
-              Stream.map(resp_stream, fn chunk ->
-                SimpleGrpc.Protobuf.decode!(rpc.output, chunk, schema)
-              end)
+    SimpleGrpc.Client.Telemetry.span(meta, fn ->
+      if rpc.request_stream or rpc.response_stream do
+        encoded_data =
+          if rpc.request_stream do
+            cond do
+              is_struct(payload, Stream) or is_function(payload, 2) or is_list(payload) ->
+                Stream.map(payload, fn item ->
+                  SimpleGrpc.Protobuf.encode!(rpc.input, item, schema)
+                end)
 
-            {:ok, decoded_stream}
+              true ->
+                [SimpleGrpc.Protobuf.encode!(rpc.input, payload, schema)]
+            end
           else
-            chunk =
-              cond do
-                is_binary(resp_stream) ->
-                  resp_stream
+            SimpleGrpc.Protobuf.encode!(rpc.input, payload, schema)
+          end
 
-                is_struct(resp_stream, Stream) or is_function(resp_stream, 2) or is_list(resp_stream) ->
-                  Enum.at(resp_stream, 0) || <<>>
+        case send_stream(conn, rpc.path, encoded_data, merged_opts) do
+          {:ok, resp_stream, _headers, _trailers} ->
+            if rpc.response_stream do
+              decoded_stream =
+                Stream.map(resp_stream, fn chunk ->
+                  SimpleGrpc.Protobuf.decode!(rpc.output, chunk, schema)
+                end)
 
-                true ->
-                  <<>>
+              {:ok, decoded_stream}
+            else
+              chunk =
+                cond do
+                  is_binary(resp_stream) ->
+                    resp_stream
+
+                  is_struct(resp_stream, Stream) or is_function(resp_stream, 2) or is_list(resp_stream) ->
+                    Enum.at(resp_stream, 0) || <<>>
+
+                  true ->
+                    <<>>
+                end
+
+              case SimpleGrpc.Protobuf.decode(rpc.output, chunk, schema) do
+                {:ok, decoded_map} ->
+                  {:ok, decoded_map}
+
+                {:error, _code, reason} ->
+                  {:error, 2, "Failed to decode response: #{reason}"}
               end
+            end
 
-            case SimpleGrpc.Protobuf.decode(rpc.output, chunk, schema) do
+          {:error, status_code, status_msg} ->
+            {:error, status_code, status_msg}
+
+          {:error, reason} ->
+            {:error, 2, inspect(reason)}
+        end
+      else
+        req_bytes = SimpleGrpc.Protobuf.encode!(rpc.input, payload, schema)
+
+        case send_unary(conn, rpc.path, req_bytes, merged_opts) do
+          {:ok, resp_bytes, _headers, _trailers} ->
+            case SimpleGrpc.Protobuf.decode(rpc.output, resp_bytes, schema) do
               {:ok, decoded_map} ->
                 {:ok, decoded_map}
 
               {:error, _code, reason} ->
                 {:error, 2, "Failed to decode response: #{reason}"}
             end
-          end
 
-        {:error, status_code, status_msg} ->
-          {:error, status_code, status_msg}
+          {:error, status_code, status_msg} ->
+            {:error, status_code, status_msg}
 
-        {:error, reason} ->
-          {:error, 2, inspect(reason)}
+          {:error, reason} ->
+            {:error, 2, inspect(reason)}
+        end
       end
-    else
-      req_bytes = SimpleGrpc.Protobuf.encode!(rpc.input, payload, schema)
+    end)
+  end
 
-      case send_unary(conn, rpc.path, req_bytes, opts) do
-        {:ok, resp_bytes, _headers, _trailers} ->
-          case SimpleGrpc.Protobuf.decode(rpc.output, resp_bytes, schema) do
-            {:ok, decoded_map} ->
-              {:ok, decoded_map}
+  defp extract_service_prefix(path) do
+    trimmed = String.trim_leading(path, "/")
 
-            {:error, _code, reason} ->
-              {:error, 2, "Failed to decode response: #{reason}"}
-          end
-
-        {:error, status_code, status_msg} ->
-          {:error, status_code, status_msg}
-
-        {:error, reason} ->
-          {:error, 2, inspect(reason)}
-      end
+    case String.split(trimmed, "/") do
+      [prefix, _rpc] -> prefix
+      _ -> trimmed
     end
+  end
+
+  defp extract_service_name(service_prefix) do
+    service_prefix
+    |> String.split(".")
+    |> List.last()
   end
 
   defp resolve_adapter(target, opts) do

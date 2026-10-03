@@ -146,24 +146,17 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
 
     @impl true
     def handle_call({:next_stream_message, request_ref, timeout}, _from, state) do
-      stream_meta = Map.get(state.streams, request_ref, %{buffer: <<>>, trailers: [], done: false, headers: []})
-
-      case receive_next_message(state.conn, request_ref, stream_meta.buffer, timeout, stream_meta.trailers, stream_meta.done) do
-        {:ok, next_conn, message, rest_buffer, trailers} ->
-          updated_meta = %{stream_meta | buffer: rest_buffer, trailers: trailers}
-          new_streams = Map.put(state.streams, request_ref, updated_meta)
+      case receive_next_message_loop(state.conn, state.streams, request_ref, timeout) do
+        {:ok, next_conn, new_streams, message} ->
           {:reply, {:ok, message}, %{state | conn: next_conn, streams: new_streams}}
 
-        {:done, next_conn, _trailers} ->
-          new_streams = Map.delete(state.streams, request_ref)
+        {:done, next_conn, new_streams} ->
           {:reply, :done, %{state | conn: next_conn, streams: new_streams}}
 
-        {:error, next_conn, status, msg} ->
-          new_streams = Map.delete(state.streams, request_ref)
+        {:error, next_conn, new_streams, status, msg} ->
           {:reply, {:error, status, msg}, %{state | conn: next_conn, streams: new_streams}}
 
-        {:error, next_conn, reason} ->
-          new_streams = Map.delete(state.streams, request_ref)
+        {:error, next_conn, new_streams, reason} ->
           {:reply, {:error, 2, inspect(reason)}, %{state | conn: next_conn, streams: new_streams}}
       end
     end
@@ -304,90 +297,56 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
     # Next Message Receiver for Progressive Streams
     # -------------------------------------------------------------------------
 
-    defp receive_next_message(conn, request_ref, buffer, timeout, acc_trailers, done?) do
-      case Framing.unframe(buffer) do
-        {:ok, message, rest} ->
-          {:ok, conn, message, rest, acc_trailers}
+    defp receive_next_message_loop(conn, streams, request_ref, timeout) do
+      stream_meta = Map.get(streams, request_ref, %{buffer: <<>>, trailers: [], done: false, headers: []})
+
+      case Framing.unframe(stream_meta.buffer) do
+        {:ok, message, rest_buffer} ->
+          updated_meta = %{stream_meta | buffer: rest_buffer}
+          new_streams = Map.put(streams, request_ref, updated_meta)
+          {:ok, conn, new_streams, message}
 
         {:incomplete, _} ->
-          if done? do
-            {status, msg} = Framing.extract_grpc_status(acc_trailers)
+          if stream_meta.done do
+            {status, msg} = Framing.extract_grpc_status(stream_meta.trailers ++ stream_meta.headers)
+            new_streams = Map.delete(streams, request_ref)
+
             if status == 0 do
-              {:done, conn, acc_trailers}
+              {:done, conn, new_streams}
             else
-              {:error, conn, status, msg}
+              {:error, conn, new_streams, status, msg}
             end
           else
             receive do
               message ->
                 case Mint.HTTP.stream(conn, message) do
                   {:ok, next_conn, responses} ->
-                    handle_chunk_responses(next_conn, request_ref, buffer, timeout, responses, acc_trailers)
+                    new_streams = route_async_responses(responses, streams)
+                    receive_next_message_loop(next_conn, new_streams, request_ref, timeout)
 
-                  {:error, next_conn, reason, _} ->
-                    {:error, next_conn, reason}
+                  {:error, next_conn, reason, _responses} ->
+                    new_streams = Map.delete(streams, request_ref)
+                    {:error, next_conn, new_streams, reason}
 
                   :unknown ->
-                    receive_next_message(conn, request_ref, buffer, timeout, acc_trailers, done?)
+                    receive_next_message_loop(conn, streams, request_ref, timeout)
                 end
             after
               timeout ->
-                {:error, conn, :timeout}
+                {:error, conn, streams, :timeout}
             end
-          end
-      end
-    end
-
-    defp handle_chunk_responses(conn, request_ref, buffer, timeout, responses, acc_trailers) do
-      Enum.reduce_while(responses, {:cont, {conn, buffer, acc_trailers, false}}, fn
-        {:data, ^request_ref, chunk}, {:cont, {c, buf, tr, done}} ->
-          {:cont, {:cont, {c, buf <> chunk, tr, done}}}
-
-        {:trailers, ^request_ref, trailers}, {:cont, {c, buf, tr, done}} ->
-          {:cont, {:cont, {c, buf, tr ++ trailers, done}}}
-
-        {:done, ^request_ref}, {:cont, {c, buf, tr, _done}} ->
-          {:cont, {:cont, {c, buf, tr, true}}}
-
-        _other, acc ->
-          {:cont, acc}
-      end)
-      |> case do
-        {:cont, {c, buf, tr, false}} ->
-          case Framing.unframe(buf) do
-            {:ok, message, rest} ->
-              {:ok, c, message, rest, tr}
-
-            {:incomplete, _} ->
-              receive_next_message(c, request_ref, buf, timeout, tr, false)
-          end
-
-        {:cont, {c, buf, tr, true}} ->
-          case Framing.unframe(buf) do
-            {:ok, message, rest} ->
-              {:ok, c, message, rest, tr}
-
-            {:incomplete, <<>>} ->
-              {status, msg} = Framing.extract_grpc_status(tr)
-              if status == 0 do
-                {:done, c, tr}
-              else
-                {:error, c, status, msg}
-              end
-
-            {:incomplete, _} ->
-              {status, msg} = Framing.extract_grpc_status(tr)
-              if status == 0 do
-                {:done, c, tr}
-              else
-                {:error, c, status, msg}
-              end
           end
       end
     end
 
     defp route_async_responses(responses, streams) do
       Enum.reduce(responses, streams, fn
+        {:headers, ref, headers}, acc ->
+          case Map.get(acc, ref) do
+            nil -> acc
+            meta -> Map.put(acc, ref, %{meta | headers: meta.headers ++ headers, trailers: meta.trailers ++ headers})
+          end
+
         {:data, ref, chunk}, acc ->
           case Map.get(acc, ref) do
             nil -> acc
