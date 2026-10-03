@@ -242,7 +242,9 @@ defmodule SimpleGrpc.Reflection.Server do
 
     matching_schema =
       Enum.find(user_schemas, fn schema ->
-        Enum.any?(schema.files, &(Path.basename(&1) == base_name or &1 == filename)) or
+        Enum.any?(schema.files, fn f ->
+          Path.basename(f) == base_name or f == filename or String.ends_with?(f, filename)
+        end) or
           schema.package == Path.rootname(base_name) or
           "#{schema.package}.proto" == base_name
       end)

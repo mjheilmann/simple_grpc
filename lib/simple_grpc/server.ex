@@ -138,6 +138,7 @@ defmodule SimpleGrpc.Server do
     rpc_to_path_escaped = Macro.escape(rpc_to_path)
 
     schema = SimpleGrpc.Schema.from_ast(ast)
+    schema = %{schema | files: [server_file]}
     schema_escaped = Macro.escape(schema)
 
     quote do
