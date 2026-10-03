@@ -35,6 +35,25 @@ defmodule SimpleGrpc.Client.Headers do
 
     merged_map = Map.merge(conn_map, call_map)
 
+    # Check for compression options
+    compress? =
+      Keyword.get(opts, :compress, false) == true or
+        Keyword.get(opts, :encoding) in ["gzip", :gzip]
+
+    merged_map =
+      if compress? and not Map.has_key?(merged_map, "grpc-encoding") do
+        Map.put(merged_map, "grpc-encoding", {"grpc-encoding", "gzip"})
+      else
+        merged_map
+      end
+
+    merged_map =
+      if not Map.has_key?(merged_map, "grpc-accept-encoding") do
+        Map.put(merged_map, "grpc-accept-encoding", {"grpc-accept-encoding", "identity,gzip"})
+      else
+        merged_map
+      end
+
     # Check for timeout option
     merged_map =
       case Keyword.get(opts, :timeout) do
@@ -81,6 +100,48 @@ defmodule SimpleGrpc.Client.Headers do
   end
 
   def format_grpc_timeout(_), do: "5000m"
+
+  @doc """
+  Parses a `grpc-timeout` header string into milliseconds.
+  Supported units:
+  - `H` (Hours)
+  - `M` (Minutes)
+  - `S` (Seconds)
+  - `m` (Milliseconds)
+  - `u` (Microseconds)
+  - `n` (Nanoseconds)
+
+  Returns `{:ok, ms}` or `:error`.
+  """
+  def parse_grpc_timeout(nil), do: :error
+  def parse_grpc_timeout(val) when is_integer(val) and val >= 0, do: {:ok, val}
+
+  def parse_grpc_timeout(val) when is_binary(val) do
+    case Regex.run(~r/^(\d+)\s*([HMSumn])$/, String.trim(val)) do
+      [_, count_str, unit] ->
+        count = String.to_integer(count_str)
+
+        ms =
+          case unit do
+            "H" -> count * 3_600_000
+            "M" -> count * 60_000
+            "S" -> count * 1_000
+            "m" -> count
+            "u" -> max(1, div(count, 1_000))
+            "n" -> max(1, div(count, 1_000_000))
+          end
+
+        {:ok, ms}
+
+      _ ->
+        case Integer.parse(String.trim(val)) do
+          {count, ""} -> {:ok, count}
+          _ -> :error
+        end
+    end
+  end
+
+  def parse_grpc_timeout(_), do: :error
 
   defp normalize_key(k) when is_atom(k) do
     k |> to_string() |> String.replace("_", "-") |> String.downcase()

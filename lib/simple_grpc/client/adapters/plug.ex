@@ -28,7 +28,7 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
   @impl true
   def send_unary(%{plug: plug_mod, plug_opts: plug_opts}, path, payload, opts) do
     custom_headers = Keyword.get(opts, :headers, [])
-    framed_body = Framing.frame(payload)
+    framed_body = Framing.frame(payload, opts)
 
     conn =
       Plug.Test.conn(:post, path, framed_body)
@@ -63,11 +63,11 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
     framed_body =
       cond do
         is_binary(request_data) ->
-          Framing.frame(request_data)
+          Framing.frame(request_data, opts)
 
         is_struct(request_data, Stream) or is_list(request_data) or is_function(request_data, 2) ->
           request_data
-          |> Enum.map(&Framing.frame/1)
+          |> Enum.map(&Framing.frame(&1, opts))
           |> IO.iodata_to_binary()
 
         true ->

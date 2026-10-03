@@ -111,4 +111,9 @@ defmodule SimpleGrpc do
   - `:schemas` - list of `%SimpleGrpc.Schema{}` structs to reflect
   """
   defdelegate enable_reflection(opts \\ []), to: SimpleGrpc.Reflection.Server, as: :register
+
+  @doc """
+  Enables the canonical gRPC Health Checking service (`grpc.health.v1.Health`).
+  """
+  defdelegate enable_health(opts \\ []), to: SimpleGrpc.Health, as: :register
 end

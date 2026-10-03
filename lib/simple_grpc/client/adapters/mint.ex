@@ -52,7 +52,7 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
     def handle_call({:send_unary, path, payload, opts}, _from, state) do
       timeout = Keyword.get(opts, :timeout, @default_timeout)
       custom_headers = Keyword.get(opts, :headers, [])
-      framed_payload = Framing.frame(payload)
+      framed_payload = Framing.frame(payload, opts)
 
       headers = [
         {"content-type", "application/grpc"},
@@ -111,14 +111,14 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
              (if is_stream_req do
                 Mint.HTTP.request(state.conn, "POST", path, headers, :stream)
               else
-                Mint.HTTP.request(state.conn, "POST", path, headers, Framing.frame(request_data))
+                Mint.HTTP.request(state.conn, "POST", path, headers, Framing.frame(request_data, opts))
               end) do
         # Stream request chunks progressively
         conn =
           if is_stream_req do
             conn =
               Enum.reduce(request_data, conn, fn chunk, acc_conn ->
-                framed = Framing.frame(chunk)
+                framed = Framing.frame(chunk, opts)
                 case Mint.HTTP.stream_request_body(acc_conn, request_ref, framed) do
                   {:ok, next_conn} -> next_conn
                   _ -> acc_conn
