@@ -3,7 +3,6 @@ defmodule SimpleGrpc.GrpcurlTest do
 
   alias SimpleGrpc.{Registry, Schema}
 
-  @port 50099
   @proto_file "priv/protos/streaming/streaming_service.proto"
 
   defmodule StreamingServer do
@@ -26,7 +25,8 @@ defmodule SimpleGrpc.GrpcurlTest do
       raise "grpcurl executable not found"
     end
 
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: @port)
+    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
       if Process.alive?(sup_pid) do
@@ -34,7 +34,7 @@ defmodule SimpleGrpc.GrpcurlTest do
       end
     end)
 
-    %{grpcurl: grpcurl_path}
+    %{grpcurl: grpcurl_path, port: port}
   end
 
   setup do
@@ -44,7 +44,7 @@ defmodule SimpleGrpc.GrpcurlTest do
     :ok
   end
 
-  test "grpcurl calls static SimpleGrpc.Server module over HTTP/2", %{grpcurl: grpcurl} do
+  test "grpcurl calls static SimpleGrpc.Server module over HTTP/2", %{grpcurl: grpcurl, port: port} do
     {output, 0} =
       System.cmd(grpcurl, [
         "-plaintext",
@@ -52,7 +52,7 @@ defmodule SimpleGrpc.GrpcurlTest do
         @proto_file,
         "-d",
         ~s({"message": "Hello from grpcurl!", "sequence": 10}),
-        "127.0.0.1:#{@port}",
+        "127.0.0.1:#{port}",
         "streaming.StreamingService/UnaryCall"
       ])
 
@@ -62,7 +62,8 @@ defmodule SimpleGrpc.GrpcurlTest do
   end
 
   test "grpcurl calls dynamically registered service and supports runtime hot-replacement", %{
-    grpcurl: grpcurl
+    grpcurl: grpcurl,
+    port: port
   } do
     # 1. Register a new service dynamically at runtime
     {:ok, schema} = Schema.from_file(@proto_file)
@@ -80,7 +81,7 @@ defmodule SimpleGrpc.GrpcurlTest do
         @proto_file,
         "-d",
         ~s({"message": "Runtime Test", "sequence": 5}),
-        "127.0.0.1:#{@port}",
+        "127.0.0.1:#{port}",
         "streaming.StreamingService/UnaryCall"
       ])
 
@@ -105,7 +106,7 @@ defmodule SimpleGrpc.GrpcurlTest do
         @proto_file,
         "-d",
         ~s({"message": "Runtime Test", "sequence": 5}),
-        "127.0.0.1:#{@port}",
+        "127.0.0.1:#{port}",
         "streaming.StreamingService/UnaryCall"
       ])
 
@@ -113,7 +114,7 @@ defmodule SimpleGrpc.GrpcurlTest do
     assert output2 =~ ~s("sequence": 50)
   end
 
-  test "grpcurl receives standard gRPC error status and message from handler", %{grpcurl: grpcurl} do
+  test "grpcurl receives standard gRPC error status and message from handler", %{grpcurl: grpcurl, port: port} do
     # Register a dynamic handler that returns a NotFound (code 5) gRPC error
     {:ok, schema} = Schema.from_file(@proto_file)
 
@@ -132,7 +133,7 @@ defmodule SimpleGrpc.GrpcurlTest do
           @proto_file,
           "-d",
           ~s({"message": "find user 999", "sequence": 1}),
-          "127.0.0.1:#{@port}",
+          "127.0.0.1:#{port}",
           "streaming.StreamingService/UnaryCall"
         ],
         stderr_to_stdout: true
@@ -143,7 +144,7 @@ defmodule SimpleGrpc.GrpcurlTest do
     assert output =~ "Requested user entity was not found in database"
   end
 
-  test "grpcurl receives Unimplemented (12) for unknown service or method", %{grpcurl: grpcurl} do
+  test "grpcurl receives Unimplemented (12) for unknown service or method", %{grpcurl: grpcurl, port: port} do
     unregistered_proto = "priv/protos/global_service.proto"
 
     {output, exit_code} =
@@ -155,7 +156,7 @@ defmodule SimpleGrpc.GrpcurlTest do
           unregistered_proto,
           "-d",
           ~s({"data": "test"}),
-          "127.0.0.1:#{@port}",
+          "127.0.0.1:#{port}",
           "GlobalService/GlobalMethod"
         ],
         stderr_to_stdout: true
@@ -166,7 +167,7 @@ defmodule SimpleGrpc.GrpcurlTest do
     assert output =~ "unknown service or method"
   end
 
-  test "grpcurl sends and handler receives HTTP/2 request headers / metadata", %{grpcurl: grpcurl} do
+  test "grpcurl sends and handler receives HTTP/2 request headers / metadata", %{grpcurl: grpcurl, port: port} do
     # Register a handler that extracts custom header from conn
     {:ok, schema} = Schema.from_file(@proto_file)
 
@@ -188,7 +189,7 @@ defmodule SimpleGrpc.GrpcurlTest do
         "x-api-key: my-super-secret-token-123",
         "-d",
         ~s({"message": "Authorized request", "sequence": 1}),
-        "127.0.0.1:#{@port}",
+        "127.0.0.1:#{port}",
         "streaming.StreamingService/UnaryCall"
       ])
 
@@ -197,7 +198,7 @@ defmodule SimpleGrpc.GrpcurlTest do
   end
 
   test "grpcurl invokes service with multi-file imports, nested submessages, enums, and WKT Timestamp",
-       %{grpcurl: grpcurl} do
+       %{grpcurl: grpcurl, port: port} do
     proto_imports = "priv/protos/imports_test/imports_test.proto"
     {:ok, schema} = Schema.from_file(proto_imports)
 
@@ -249,7 +250,7 @@ defmodule SimpleGrpc.GrpcurlTest do
           "priv/protos",
           "-d",
           request_payload,
-          "127.0.0.1:#{@port}",
+          "127.0.0.1:#{port}",
           "imports_test.ImportTestService/CreateUser"
         ],
         stderr_to_stdout: true
@@ -269,10 +270,11 @@ defmodule SimpleGrpc.GrpcurlTest do
     end
 
     test "grpcurl list discovers all services via server reflection without -proto flag", %{
-      grpcurl: grpcurl
+      grpcurl: grpcurl,
+      port: port
     } do
       {output, 0} =
-        System.cmd(grpcurl, ["-plaintext", "127.0.0.1:#{@port}", "list"],
+        System.cmd(grpcurl, ["-plaintext", "127.0.0.1:#{port}", "list"],
           stderr_to_stdout: true
         )
 
@@ -281,12 +283,13 @@ defmodule SimpleGrpc.GrpcurlTest do
     end
 
     test "grpcurl describe inspects service schema via server reflection without -proto flag", %{
-      grpcurl: grpcurl
+      grpcurl: grpcurl,
+      port: port
     } do
       {output, 0} =
         System.cmd(
           grpcurl,
-          ["-plaintext", "127.0.0.1:#{@port}", "describe", "streaming.StreamingService"],
+          ["-plaintext", "127.0.0.1:#{port}", "describe", "streaming.StreamingService"],
           stderr_to_stdout: true
         )
 
@@ -295,7 +298,8 @@ defmodule SimpleGrpc.GrpcurlTest do
     end
 
     test "grpcurl invokes RPC directly via server reflection without passing -proto file", %{
-      grpcurl: grpcurl
+      grpcurl: grpcurl,
+      port: port
     } do
       {output, 0} =
         System.cmd(
@@ -304,7 +308,7 @@ defmodule SimpleGrpc.GrpcurlTest do
             "-plaintext",
             "-d",
             ~s({"message": "Discovered via Reflection!", "sequence": 100}),
-            "127.0.0.1:#{@port}",
+            "127.0.0.1:#{port}",
             "streaming.StreamingService/UnaryCall"
           ],
           stderr_to_stdout: true

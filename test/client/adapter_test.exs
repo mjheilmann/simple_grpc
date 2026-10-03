@@ -5,7 +5,6 @@ defmodule SimpleGrpc.Client.AdapterTest do
   alias SimpleGrpc.Protobuf
   alias SimpleGrpc.Schema
 
-  @port 50097
   @proto_file "priv/protos/streaming/streaming_service.proto"
 
   defmodule TestServer do
@@ -40,7 +39,8 @@ defmodule SimpleGrpc.Client.AdapterTest do
   end
 
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: @port)
+    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
       if Process.alive?(sup_pid), do: Process.exit(sup_pid, :shutdown)
@@ -48,7 +48,7 @@ defmodule SimpleGrpc.Client.AdapterTest do
 
     {:ok, schema} = Schema.from_file(@proto_file)
 
-    %{schema: schema}
+    %{schema: schema, port: port}
   end
 
   setup do
@@ -96,8 +96,8 @@ defmodule SimpleGrpc.Client.AdapterTest do
   end
 
   describe "HTTP/2 Network Mint Adapter" do
-    test "connects over HTTP/2 and sends unary RPC", %{schema: schema} do
-      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{@port}", adapter: :mint)
+    test "connects over HTTP/2 and sends unary RPC", %{schema: schema, port: port} do
+      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{port}", adapter: :mint)
 
       req_bytes = Protobuf.encode!("StreamRequest", %{message: "NetworkMint", sequence: 42}, schema)
       path = "/streaming.StreamingService/UnaryCall"
@@ -112,8 +112,8 @@ defmodule SimpleGrpc.Client.AdapterTest do
       :ok = SimpleGrpc.Client.close(conn)
     end
 
-    test "connects over HTTP/2 and streams response chunks", %{schema: schema} do
-      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{@port}", adapter: :mint)
+    test "connects over HTTP/2 and streams response chunks", %{schema: schema, port: port} do
+      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{port}", adapter: :mint)
 
       req_bytes = Protobuf.encode!("StreamRequest", %{message: "MintStream", sequence: 200}, schema)
       path = "/streaming.StreamingService/ServerStreamingCall"
@@ -135,8 +135,8 @@ defmodule SimpleGrpc.Client.AdapterTest do
       :ok = SimpleGrpc.Client.close(conn)
     end
 
-    test "streams client request chunks over HTTP/2", %{schema: schema} do
-      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{@port}", adapter: :mint)
+    test "streams client request chunks over HTTP/2", %{schema: schema, port: port} do
+      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{port}", adapter: :mint)
 
       reqs = [
         Protobuf.encode!("StreamRequest", %{message: "Chunk1", sequence: 1}, schema),

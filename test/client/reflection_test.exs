@@ -5,7 +5,6 @@ defmodule SimpleGrpc.Client.ReflectionTest do
   alias SimpleGrpc.Reflection.{Descriptor, Server}
   alias SimpleGrpc.Client.Reflection, as: ClientReflection
 
-  @port 50095
   @proto_file "priv/protos/streaming/streaming_service.proto"
 
   defmodule TestServer do
@@ -35,13 +34,14 @@ defmodule SimpleGrpc.Client.ReflectionTest do
   end
 
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: @port)
+    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
       if Process.alive?(sup_pid), do: Process.exit(sup_pid, :shutdown)
     end)
 
-    :ok
+    %{port: port}
   end
 
   setup do
@@ -161,8 +161,8 @@ defmodule SimpleGrpc.Client.ReflectionTest do
   end
 
   describe "Client.Reflection with network HTTP/2 Mint adapter" do
-    test "queries reflection over real HTTP/2 connection" do
-      {:ok, conn} = SimpleGrpc.Client.connect("localhost:#{@port}", adapter: :mint)
+    test "queries reflection over real HTTP/2 connection", %{port: port} do
+      {:ok, conn} = SimpleGrpc.Client.connect("localhost:#{port}", adapter: :mint)
 
       # 1. List services
       assert {:ok, services} = ClientReflection.list_services(conn)

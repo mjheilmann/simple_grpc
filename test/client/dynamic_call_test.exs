@@ -4,7 +4,6 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
   alias SimpleGrpc.{Registry, Schema}
   alias SimpleGrpc.Reflection.Server
 
-  @port 50094
   @proto_file "priv/protos/streaming/streaming_service.proto"
 
   defmodule TestServer do
@@ -39,14 +38,15 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
   end
 
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: @port)
+    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
       if Process.alive?(sup_pid), do: Process.exit(sup_pid, :shutdown)
     end)
 
     {:ok, schema} = Schema.from_file(@proto_file)
-    %{schema: schema}
+    %{schema: schema, port: port}
   end
 
   setup do
@@ -178,8 +178,10 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
   end
 
   describe "Dynamic Client.call over HTTP/2 Mint transport with reflection" do
-    test "connects over HTTP/2 with reflection: true and makes dynamic unary and streaming calls" do
-      {:ok, client} = SimpleGrpc.Client.connect("localhost:#{@port}", adapter: :mint, reflection: true)
+    test "connects over HTTP/2 with reflection: true and makes dynamic unary and streaming calls", %{
+      port: port
+    } do
+      {:ok, client} = SimpleGrpc.Client.connect("localhost:#{port}", adapter: :mint, reflection: true)
       assert client.schema != nil
 
       # 1. Unary call

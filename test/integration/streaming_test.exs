@@ -3,7 +3,6 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
 
   alias SimpleGrpc.Registry
 
-  @port 50098
   @proto_file "priv/protos/streaming/streaming_service.proto"
 
   defmodule FullStreamingServer do
@@ -61,7 +60,8 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
       raise "grpcurl executable not found"
     end
 
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: @port)
+    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
       if Process.alive?(sup_pid) do
@@ -69,7 +69,7 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
       end
     end)
 
-    %{grpcurl: grpcurl_path}
+    %{grpcurl: grpcurl_path, port: port}
   end
 
   setup do
@@ -79,7 +79,8 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
   end
 
   test "Server Streaming: Client sends 1 request, server returns stream of 3 chunks", %{
-    grpcurl: grpcurl
+    grpcurl: grpcurl,
+    port: port
   } do
     {output, 0} =
       System.cmd(
@@ -90,7 +91,7 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
           @proto_file,
           "-d",
           ~s({"message": "HelloStream", "sequence": 100}),
-          "127.0.0.1:#{@port}",
+          "127.0.0.1:#{port}",
           "streaming.StreamingService/ServerStreamingCall"
         ],
         stderr_to_stdout: true
@@ -106,7 +107,8 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
   end
 
   test "Client Streaming: Client streams multiple JSON frames, server aggregates", %{
-    grpcurl: grpcurl
+    grpcurl: grpcurl,
+    port: port
   } do
     frames = ~s({"message": "First", "sequence": 1}\n{"message": "Second", "sequence": 2}\n{"message": "Third", "sequence": 3})
 
@@ -119,7 +121,7 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
           @proto_file,
           "-d",
           frames,
-          "127.0.0.1:#{@port}",
+          "127.0.0.1:#{port}",
           "streaming.StreamingService/ClientStreamingCall"
         ],
         stderr_to_stdout: true
@@ -131,7 +133,8 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
   end
 
   test "Bidirectional Streaming: Client and server stream messages asynchronously", %{
-    grpcurl: grpcurl
+    grpcurl: grpcurl,
+    port: port
   } do
     frames = ~s({"message": "Alpha", "sequence": 1}\n{"message": "Beta", "sequence": 2}\n{"message": "Gamma", "sequence": 3})
 
@@ -144,7 +147,7 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
           @proto_file,
           "-d",
           frames,
-          "127.0.0.1:#{@port}",
+          "127.0.0.1:#{port}",
           "streaming.StreamingService/BidirectionalStreamingCall"
         ],
         stderr_to_stdout: true

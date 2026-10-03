@@ -3,8 +3,6 @@ defmodule SimpleGrpc.ClientDSLTest do
 
   alias SimpleGrpc.Registry
 
-  @port 50096
-
   # Define typed Client using SimpleGrpc.Client
   defmodule StreamingClient do
     use SimpleGrpc.Client,
@@ -40,13 +38,14 @@ defmodule SimpleGrpc.ClientDSLTest do
   end
 
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: @port)
+    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
       if Process.alive?(sup_pid), do: Process.exit(sup_pid, :shutdown)
     end)
 
-    :ok
+    %{port: port}
   end
 
   setup do
@@ -156,8 +155,8 @@ defmodule SimpleGrpc.ClientDSLTest do
   end
 
   describe "HTTP/2 Network Mint Transport with Typed Client" do
-    test "Unary RPC over HTTP/2" do
-      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{@port}", adapter: :mint)
+    test "Unary RPC over HTTP/2", %{port: port} do
+      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{port}", adapter: :mint)
 
       {:ok, resp} = StreamingClient.unary_call(conn, %{message: "MintClient", sequence: 50})
       assert resp.result == "Echo: MintClient"
@@ -166,8 +165,8 @@ defmodule SimpleGrpc.ClientDSLTest do
       :ok = SimpleGrpc.Client.close(conn)
     end
 
-    test "Server Streaming RPC over HTTP/2" do
-      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{@port}", adapter: :mint)
+    test "Server Streaming RPC over HTTP/2", %{port: port} do
+      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{port}", adapter: :mint)
 
       {:ok, resp_stream} = StreamingClient.server_streaming_call(conn, %{message: "MintStream", sequence: 200})
 
