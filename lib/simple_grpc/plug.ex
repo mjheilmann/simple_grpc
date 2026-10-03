@@ -491,24 +491,16 @@ defmodule SimpleGrpc.Plug do
   @doc """
   Unframes a 5-byte length-prefixed gRPC message.
   """
-  def unframe_grpc_message(
-        <<_compressed::8, length::32-big, data::binary-size(length), _rest::binary>>
-      ) do
-    {:ok, data}
-  end
-
-  def unframe_grpc_message(<<>>) do
-    {:ok, <<>>}
-  end
-
-  def unframe_grpc_message(invalid) do
-    {:error, "Invalid gRPC frame header: #{inspect(invalid)}"}
+  def unframe_grpc_message(binary) do
+    case SimpleGrpc.Framing.unframe(binary) do
+      {:ok, data, _rest} -> {:ok, data}
+      {:incomplete, <<>>} -> {:ok, <<>>}
+      {:incomplete, partial} -> {:error, "Invalid gRPC frame header: #{inspect(partial)}"}
+    end
   end
 
   @doc """
   Frames a binary payload with the standard 5-byte gRPC prefix.
   """
-  def frame_grpc_message(payload) when is_binary(payload) do
-    <<0::8, byte_size(payload)::32-big, payload::binary>>
-  end
+  defdelegate frame_grpc_message(payload), to: SimpleGrpc.Framing, as: :frame
 end

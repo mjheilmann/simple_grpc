@@ -44,7 +44,7 @@ defmodule SimpleGrpc.Server.Message do
         defstruct unquote(field_atoms)
 
         def new(attrs \\ %{}) do
-          SimpleGrpc.Server.Coercer.coerce(attrs, __MODULE__)
+          SimpleGrpc.Coercer.coerce(attrs, __MODULE__)
         end
 
         def __message_name__, do: unquote(message_name)

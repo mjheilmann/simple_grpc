@@ -1,13 +1,56 @@
 defmodule SimpleGrpc do
   @moduledoc """
-  Documentation for `SimpleGrpc`.
+  Lightweight, pure-Elixir gRPC server and client with zero external compiler dependencies (`protoc`-free).
 
-  Simple gRPC provides lightweight, compile-time and runtime gRPC server
-  and client capabilities in Elixir without requiring `protoc` or ahead-of-time
-  code generation.
+  ## Features
+  - **No `protoc` required**: Pure-Elixir `.proto` parsing, protobuf encoding/decoding, and schema synthesis.
+  - **Fast Server**: Built on Plug & Bandit with full HTTP/2 streaming and server reflection support.
+  - **Type-Safe Client**: Strongly typed compile-time clients (`use SimpleGrpc.Client`), lazy server streaming (`Stream.resource`), and progressive client streaming.
+  - **In-Memory Testing**: Direct `:plug` adapter for zero-overhead, socket-free client-to-server integration testing.
+  - **gRPC Server Reflection**: Dynamic reflection client and server (`v1` and `v1alpha`).
+
+  ## Server Quickstart
+      defmodule GreeterServer do
+        use SimpleGrpc.Server,
+          server_file: "priv/protos/greeter.proto"
+
+        def say_hello(req, _stream) do
+          {:ok, %{message: "Hello, " <> req.name}}
+        end
+      end
+
+      # In your supervision tree or Bandit endpoint:
+      {Bandit, plug: {SimpleGrpc.Plug, services: [GreeterServer], reflection: true}, port: 50051}
+
+  ## Typed Client Quickstart
+      defmodule GreeterClient do
+        use SimpleGrpc.Client,
+          client_file: "priv/protos/greeter.proto"
+      end
+
+      {:ok, conn} = SimpleGrpc.Client.connect("localhost:50051", adapter: :mint)
+      {:ok, response} = GreeterClient.say_hello(conn, %{name: "Alice"})
+
+  ## In-Memory Testing (Zero TCP / Zero Sockets)
+      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, response} = GreeterClient.say_hello(conn, %{name: "Test"})
+
+  ## Dynamic Reflection Client
+      {:ok, client} = SimpleGrpc.Client.connect("localhost:50051", reflection: true)
+      {:ok, response} = SimpleGrpc.Client.call(client, "greeter.Greeter/SayHello", %{name: "Dynamic"})
   """
 
   alias SimpleGrpc.{Registry, Schema, Protobuf}
+
+  @doc """
+  Connects to a gRPC server endpoint. Delegates to `SimpleGrpc.Client.connect/2`.
+  """
+  defdelegate connect(target, opts \\ []), to: SimpleGrpc.Client
+
+  @doc """
+  Invokes an RPC dynamically using reflection or a runtime schema. Delegates to `SimpleGrpc.Client.call/4`.
+  """
+  defdelegate call(conn, rpc_or_path, payload, opts \\ []), to: SimpleGrpc.Client
 
   @doc """
   Registers a schema and its handlers with the dynamic gRPC registry.

@@ -76,7 +76,18 @@ defmodule SimpleGrpc.Dispatcher do
   defp normalize_result({:error, code, msg}) when is_integer(code) and is_binary(msg),
     do: {:error, code, msg}
 
-  defp normalize_result({:error, msg}) when is_binary(msg), do: {:error, 2, msg}
-  defp normalize_result({:error, reason}), do: {:error, 2, inspect(reason)}
-  defp normalize_result(result), do: {:ok, result}
+  defp normalize_result({:error, code, msg}) when is_atom(code) and is_binary(msg),
+    do: {:error, SimpleGrpc.Status.code(code), msg}
+
+  defp normalize_result({:error, code}) when is_atom(code) and code != :error,
+    do: {:error, SimpleGrpc.Status.code(code), to_string(code)}
+
+  defp normalize_result({:error, msg}) when is_binary(msg),
+    do: {:error, 2, msg}
+
+  defp normalize_result({:error, reason}),
+    do: {:error, 2, inspect(reason)}
+
+  defp normalize_result(result),
+    do: {:ok, result}
 end

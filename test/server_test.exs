@@ -401,4 +401,30 @@ defmodule SimpleGrpc.ServerTest do
     int_struct = mod.new(%{status: 3})
     assert int_struct.status == :Status_Pending
   end
+
+  test "Dispatcher normalizes atom error tuples ({:error, :not_found, msg}) into standard integer codes" do
+    assert {:error, 5, "User not found"} =
+             SimpleGrpc.Dispatcher.invoke_handler(
+               fn _req -> {:error, :not_found, "User not found"} end,
+               "GetUser",
+               %{},
+               nil
+             )
+
+    assert {:error, 3, "Invalid email"} =
+             SimpleGrpc.Dispatcher.invoke_handler(
+               fn _req -> {:error, :invalid_argument, "Invalid email"} end,
+               "CreateUser",
+               %{},
+               nil
+             )
+
+    assert {:error, 16, "unauthenticated"} =
+             SimpleGrpc.Dispatcher.invoke_handler(
+               fn _req -> {:error, :unauthenticated} end,
+               "SecureCall",
+               %{},
+               nil
+             )
+  end
 end
