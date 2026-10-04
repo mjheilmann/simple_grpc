@@ -14,6 +14,7 @@ defmodule SimpleGrpc.Schema.Message do
     fields_by_name: %{},
     nested_messages: [],
     nested_enums: [],
+    has_oneofs: false,
     options: %{}
   ]
 
@@ -95,6 +96,8 @@ defmodule SimpleGrpc.Schema.Message do
       end)
       |> Map.new()
 
+    has_oneofs = Enum.any?(fields, fn f -> f.kind == :oneof end)
+
     %__MODULE__{
       name: name,
       full_name: name,
@@ -103,6 +106,7 @@ defmodule SimpleGrpc.Schema.Message do
       fields_by_name: fields_by_name,
       nested_messages: nested_messages,
       nested_enums: nested_enums,
+      has_oneofs: has_oneofs,
       options: options
     }
   end

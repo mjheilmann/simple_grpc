@@ -1,7 +1,10 @@
+import Bitwise
+
 defmodule SimpleGrpc.Schema.Field do
   @moduledoc """
   Represents a field, map, or oneof within a protobuf message definition.
   """
+  import Bitwise
 
   defstruct [
     :name,
@@ -13,6 +16,10 @@ defmodule SimpleGrpc.Schema.Field do
     :key_type,
     :val_type,
     :fields,
+    :tag_bytes,
+    :wire_type,
+    :is_packable,
+    :oneof_name,
     options: %{}
   ]
 
@@ -26,6 +33,10 @@ defmodule SimpleGrpc.Schema.Field do
           key_type: any(),
           val_type: any(),
           fields: list(t()) | nil,
+          tag_bytes: binary() | nil,
+          wire_type: integer() | nil,
+          is_packable: boolean() | nil,
+          oneof_name: atom() | nil,
           options: map()
         }
 
@@ -56,6 +67,10 @@ defmodule SimpleGrpc.Schema.Field do
         _, acc -> acc
       end)
 
+    wire_type = compute_wire_type(type)
+    tag_bytes = if wire_type && is_integer(number), do: encode_tag(number, wire_type), else: nil
+    is_packable = compute_is_packable(type)
+
     %__MODULE__{
       kind: :field,
       name: String.to_atom(name),
@@ -63,7 +78,10 @@ defmodule SimpleGrpc.Schema.Field do
       number: number,
       prefix: prefix,
       deprecated: deprecated,
-      options: options
+      options: options,
+      wire_type: wire_type,
+      tag_bytes: tag_bytes,
+      is_packable: is_packable
     }
   end
 
@@ -74,6 +92,8 @@ defmodule SimpleGrpc.Schema.Field do
         _, acc -> acc
       end)
 
+    tag_bytes = if is_integer(number), do: encode_tag(number, 2), else: nil
+
     %__MODULE__{
       kind: :map,
       name: String.to_atom(name),
@@ -83,11 +103,16 @@ defmodule SimpleGrpc.Schema.Field do
       number: number,
       prefix: nil,
       deprecated: false,
-      options: options
+      options: options,
+      wire_type: 2,
+      tag_bytes: tag_bytes,
+      is_packable: false
     }
   end
 
   def parse({:oneof, [oneof_name | fields]}) do
+    oneof_atom = String.to_atom(oneof_name)
+
     parsed_fields =
       fields
       |> Enum.filter(fn
@@ -95,12 +120,65 @@ defmodule SimpleGrpc.Schema.Field do
         _ -> false
       end)
       |> Enum.map(&parse/1)
+      |> Enum.map(fn f -> %{f | oneof_name: oneof_atom} end)
 
     %__MODULE__{
       kind: :oneof,
-      name: String.to_atom(oneof_name),
+      name: oneof_atom,
       fields: parsed_fields,
-      deprecated: false
+      deprecated: false,
+      oneof_name: oneof_atom
     }
+  end
+
+  def compute_wire_type("int32"), do: 0
+  def compute_wire_type("int64"), do: 0
+  def compute_wire_type("uint32"), do: 0
+  def compute_wire_type("uint64"), do: 0
+  def compute_wire_type("sint32"), do: 0
+  def compute_wire_type("sint64"), do: 0
+  def compute_wire_type("bool"), do: 0
+  def compute_wire_type("fixed64"), do: 1
+  def compute_wire_type("sfixed64"), do: 1
+  def compute_wire_type("double"), do: 1
+  def compute_wire_type("string"), do: 2
+  def compute_wire_type("bytes"), do: 2
+  def compute_wire_type({:map, _, _}), do: 2
+  def compute_wire_type("fixed32"), do: 5
+  def compute_wire_type("sfixed32"), do: 5
+  def compute_wire_type("float"), do: 5
+  def compute_wire_type(_other), do: nil
+
+  def compute_is_packable("int32"), do: true
+  def compute_is_packable("int64"), do: true
+  def compute_is_packable("uint32"), do: true
+  def compute_is_packable("uint64"), do: true
+  def compute_is_packable("sint32"), do: true
+  def compute_is_packable("sint64"), do: true
+  def compute_is_packable("bool"), do: true
+  def compute_is_packable("fixed64"), do: true
+  def compute_is_packable("sfixed64"), do: true
+  def compute_is_packable("double"), do: true
+  def compute_is_packable("fixed32"), do: true
+  def compute_is_packable("sfixed32"), do: true
+  def compute_is_packable("float"), do: true
+  def compute_is_packable(_other), do: false
+
+  defp encode_tag(field_num, wire_type) do
+    tag = (field_num <<< 3) ||| wire_type
+    cond do
+      tag < 128 ->
+        <<tag>>
+
+      tag < 16384 ->
+        <<1::1, (tag &&& 0x7F)::7, 0::1, (tag >>> 7)::7>>
+
+      tag < 2_097_152 ->
+        <<1::1, (tag &&& 0x7F)::7, 1::1, ((tag >>> 7) &&& 0x7F)::7, 0::1, (tag >>> 14)::7>>
+
+      true ->
+        <<1::1, (tag &&& 0x7F)::7, 1::1, ((tag >>> 7) &&& 0x7F)::7, 1::1,
+          ((tag >>> 14) &&& 0x7F)::7, 0::1, (tag >>> 21)::7>>
+    end
   end
 end

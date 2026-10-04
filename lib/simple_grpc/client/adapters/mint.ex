@@ -40,7 +40,8 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
              scheme: scheme,
              host: host,
              port: port,
-             streams: %{}
+             streams: %{},
+             requests: %{}
            }}
 
         {:error, reason} ->
@@ -49,7 +50,7 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
     end
 
     @impl true
-    def handle_call({:send_unary, path, payload, opts}, _from, state) do
+    def handle_call({:send_unary, path, payload, opts}, from, state) do
       timeout = Keyword.get(opts, :timeout, @default_timeout)
       custom_headers = Keyword.get(opts, :headers, [])
       framed_payload = Framing.frame(payload, opts)
@@ -60,44 +61,52 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
         | format_headers(custom_headers)
       ]
 
-      with {:ok, conn, request_ref} <-
-             Mint.HTTP.request(state.conn, "POST", path, headers, :stream),
-           {:ok, conn, early_responses} <-
-             stream_large_body(conn, request_ref, framed_payload, timeout, []),
-           {:ok, next_conn, status, resp_headers, resp_data, trailers} <-
-             receive_response_with_early(conn, request_ref, timeout, early_responses, <<>>, [], []) do
-        {grpc_status, grpc_msg} =
-          Framing.extract_grpc_status(trailers ++ resp_headers)
+      req_meta = %{
+        from: from,
+        buffer: <<>>,
+        status: 200,
+        headers: [],
+        trailers: [],
+        timeout: timeout
+      }
 
-        res =
-          if grpc_status == 0 and status == 200 do
-            case Framing.unframe(resp_data) do
-              {:ok, response_payload, _rest} ->
-                {:ok, response_payload, resp_headers, trailers}
+      payload_size = byte_size(framed_payload)
 
-              {:incomplete, <<>>} ->
-                {:ok, <<>>, resp_headers, trailers}
+      if payload_size <= 16384 do
+        with {:ok, conn, request_ref} <-
+               Mint.HTTP.request(state.conn, "POST", path, headers, framed_payload) do
+          new_requests = Map.put(state.requests, request_ref, req_meta)
+          {:noreply, %{state | conn: conn, requests: new_requests}}
+        else
+          {:error, next_conn, reason} ->
+            {:reply, {:error, 2, inspect(reason)}, %{state | conn: next_conn}}
 
-              {:incomplete, _} ->
-                {:ok, resp_data, resp_headers, trailers}
-            end
-          else
-            {:error, grpc_status, grpc_msg}
-          end
-
-        {:reply, res, %{state | conn: next_conn}}
+          {:error, reason} ->
+            {:reply, {:error, 2, inspect(reason)}, state}
+        end
       else
-        {:error, next_conn, reason} ->
-          {:reply, {:error, 2, inspect(reason)}, %{state | conn: next_conn}}
+        with {:ok, conn, request_ref} <-
+               Mint.HTTP.request(state.conn, "POST", path, headers, :stream),
+             {:ok, conn, early_responses} <-
+               stream_large_body(conn, request_ref, framed_payload, timeout, []) do
+          new_requests = Map.put(state.requests, request_ref, req_meta)
+          {new_requests, new_streams} =
+            process_multiplexed_responses(early_responses, new_requests, state.streams)
 
-        {:error, reason} ->
-          {:reply, {:error, 2, inspect(reason)}, state}
+          {:noreply, %{state | conn: conn, requests: new_requests, streams: new_streams}}
+        else
+          {:error, next_conn, reason} ->
+            {:reply, {:error, 2, inspect(reason)}, %{state | conn: next_conn}}
+
+          {:error, reason} ->
+            {:reply, {:error, 2, inspect(reason)}, state}
+        end
       end
     end
 
     @impl true
     def handle_call({:start_stream, path, request_data, opts}, _from, state) do
-      _timeout = Keyword.get(opts, :timeout, @default_timeout)
+      timeout = Keyword.get(opts, :timeout, @default_timeout)
       custom_headers = Keyword.get(opts, :headers, [])
 
       headers = [
@@ -110,37 +119,33 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
         is_struct(request_data, Stream) or is_list(request_data) or is_function(request_data, 2)
 
       with {:ok, conn, request_ref} <-
+             Mint.HTTP.request(state.conn, "POST", path, headers, :stream),
+           {:ok, conn, early_responses} <-
              (if is_stream_req do
-                Mint.HTTP.request(state.conn, "POST", path, headers, :stream)
-              else
-                Mint.HTTP.request(state.conn, "POST", path, headers, Framing.frame(request_data, opts))
-              end) do
-        # Stream request chunks progressively
-        conn =
-          if is_stream_req do
-            conn =
-              Enum.reduce(request_data, conn, fn chunk, acc_conn ->
-                framed = Framing.frame(chunk, opts)
-                case Mint.HTTP.stream_request_body(acc_conn, request_ref, framed) do
-                  {:ok, next_conn} -> next_conn
-                  _ -> acc_conn
+                case stream_enumerable_body(conn, request_ref, request_data, timeout, opts) do
+                  {:ok, next_conn, early} ->
+                    case Mint.HTTP.stream_request_body(next_conn, request_ref, :eof) do
+                      {:ok, final_conn} -> {:ok, final_conn, early}
+                      {:error, final_conn, err} -> {:error, final_conn, err}
+                    end
+
+                  {:error, next_conn, err} ->
+                    {:error, next_conn, err}
                 end
-              end)
-
-            case Mint.HTTP.stream_request_body(conn, request_ref, :eof) do
-              {:ok, next_conn} -> next_conn
-              _ -> conn
-            end
-          else
-            conn
-          end
-
-        # Initialize stream buffer in state
+              else
+                framed = Framing.frame(request_data, opts)
+                stream_large_body(conn, request_ref, framed, timeout, [])
+              end) do
+        # Initialize stream buffer in state and route any early responses
         stream_meta = %{buffer: <<>>, trailers: [], done: false, headers: []}
         new_streams = Map.put(state.streams, request_ref, stream_meta)
+        new_streams = route_async_responses(early_responses, new_streams)
 
         {:reply, {:ok, request_ref}, %{state | conn: conn, streams: new_streams}}
       else
+        {:error, next_conn, reason} ->
+          {:reply, {:error, 2, inspect(reason)}, %{state | conn: next_conn}}
+
         {:error, reason} ->
           {:reply, {:error, 2, inspect(reason)}, state}
       end
@@ -192,15 +197,151 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
     def handle_info(message, state) do
       case Mint.HTTP.stream(state.conn, message) do
         {:ok, conn, responses} ->
-          # Route any chunk responses into active stream buffers
-          new_streams = route_async_responses(responses, state.streams)
-          {:noreply, %{state | conn: conn, streams: new_streams}}
+          # Route any responses into active unary requests and streaming buffers
+          {new_requests, new_streams} =
+            process_multiplexed_responses(responses, state.requests, state.streams)
+
+          {:noreply, %{state | conn: conn, requests: new_requests, streams: new_streams}}
 
         {:error, conn, _reason, _responses} ->
           {:noreply, %{state | conn: conn}}
 
         :unknown ->
           {:noreply, state}
+      end
+    end
+
+    defp process_multiplexed_responses(responses, requests, streams) do
+      Enum.reduce(responses, {requests, streams}, fn resp, {req_acc, str_acc} ->
+        case resp do
+          {:status, ref, status} ->
+            if Map.has_key?(req_acc, ref) do
+              {update_in(req_acc, [ref, :status], fn _ -> status end), str_acc}
+            else
+              {req_acc, route_async_responses([resp], str_acc)}
+            end
+
+          {:headers, ref, headers} ->
+            if Map.has_key?(req_acc, ref) do
+              {update_in(req_acc, [ref, :headers], &(&1 ++ headers)), str_acc}
+            else
+              {req_acc, route_async_responses([resp], str_acc)}
+            end
+
+          {:data, ref, chunk} ->
+            if Map.has_key?(req_acc, ref) do
+              {update_in(req_acc, [ref, :buffer], &(&1 <> chunk)), str_acc}
+            else
+              {req_acc, route_async_responses([resp], str_acc)}
+            end
+
+          {:trailers, ref, trailers} ->
+            if Map.has_key?(req_acc, ref) do
+              {update_in(req_acc, [ref, :trailers], &(&1 ++ trailers)), str_acc}
+            else
+              {req_acc, route_async_responses([resp], str_acc)}
+            end
+
+          {:done, ref} ->
+            if Map.has_key?(req_acc, ref) do
+              req_meta = Map.get(req_acc, ref)
+              all_headers = req_meta.headers ++ req_meta.trailers
+              {grpc_status, grpc_msg} = Framing.extract_grpc_status(all_headers)
+
+              res =
+                if grpc_status == 0 and req_meta.status == 200 do
+                  case Framing.unframe(req_meta.buffer) do
+                    {:ok, response_payload, _rest} ->
+                      {:ok, response_payload, req_meta.headers, req_meta.trailers}
+
+                    {:incomplete, <<>>} ->
+                      {:ok, <<>>, req_meta.headers, req_meta.trailers}
+
+                    {:incomplete, _} ->
+                      {:ok, req_meta.buffer, req_meta.headers, req_meta.trailers}
+                  end
+                else
+                  {:error, grpc_status, grpc_msg}
+                end
+
+              GenServer.reply(req_meta.from, res)
+              {Map.delete(req_acc, ref), str_acc}
+            else
+              {req_acc, route_async_responses([resp], str_acc)}
+            end
+
+          {:error, ref, reason} ->
+            if Map.has_key?(req_acc, ref) do
+              req_meta = Map.get(req_acc, ref)
+              GenServer.reply(req_meta.from, {:error, 2, inspect(reason)})
+              {Map.delete(req_acc, ref), str_acc}
+            else
+              {req_acc, route_async_responses([resp], str_acc)}
+            end
+
+          other ->
+            {req_acc, route_async_responses([other], str_acc)}
+        end
+      end)
+    end
+
+    defp stream_enumerable_body(conn, request_ref, enumerable, timeout, opts) do
+      Enum.reduce_while(enumerable, {:ok, conn, []}, fn item, {:ok, acc_conn, early_responses} ->
+        framed = Framing.frame(item, opts)
+
+        case stream_single_framed_chunk(acc_conn, request_ref, framed, timeout, early_responses) do
+          {:ok, next_conn, new_early} -> {:cont, {:ok, next_conn, new_early}}
+          {:error, next_conn, reason} -> {:halt, {:error, next_conn, reason}}
+        end
+      end)
+    end
+
+    defp stream_single_framed_chunk(conn, _request_ref, <<>>, _timeout, early_responses) do
+      {:ok, conn, early_responses}
+    end
+
+    defp stream_single_framed_chunk(conn, request_ref, data, timeout, early_responses) when is_binary(data) do
+      if is_struct(conn, Mint.HTTP2) and not Map.has_key?(conn.ref_to_stream_id, request_ref) do
+        {:ok, conn, early_responses}
+      else
+        window =
+          if is_struct(conn, Mint.HTTP2) do
+            cw = Mint.HTTP2.get_window_size(conn, :connection)
+            rw = Mint.HTTP2.get_window_size(conn, {:request, request_ref})
+            max(min(cw, rw), 0)
+          else
+            byte_size(data)
+          end
+
+        if window > 0 do
+          chunk_len = min(min(window, 16384), byte_size(data))
+          <<chunk::binary-size(^chunk_len), rest::binary>> = data
+
+          case Mint.HTTP.stream_request_body(conn, request_ref, chunk) do
+            {:ok, next_conn} ->
+              stream_single_framed_chunk(next_conn, request_ref, rest, timeout, early_responses)
+
+            {:error, next_conn, reason} ->
+              {:error, next_conn, reason}
+          end
+        else
+          receive do
+            message ->
+              case Mint.HTTP.stream(conn, message) do
+                {:ok, next_conn, responses} ->
+                  stream_single_framed_chunk(next_conn, request_ref, data, timeout, early_responses ++ responses)
+
+                {:error, next_conn, reason, _responses} ->
+                  {:error, next_conn, reason}
+
+                :unknown ->
+                  stream_single_framed_chunk(conn, request_ref, data, timeout, early_responses)
+              end
+          after
+            timeout ->
+              {:error, conn, :timeout}
+          end
+        end
       end
     end
 
@@ -256,110 +397,7 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
       end
     end
 
-    defp receive_response_with_early(conn, request_ref, timeout, [], acc_data, acc_headers, acc_trailers) do
-      receive_response(conn, request_ref, timeout, acc_data, acc_headers, acc_trailers)
-    end
 
-    defp receive_response_with_early(conn, request_ref, timeout, early_responses, acc_data, acc_headers, acc_trailers) do
-      case handle_stream_responses(conn, request_ref, timeout, early_responses, acc_data, acc_headers, acc_trailers) do
-        {:cont, {next_conn, new_data, new_headers, new_trailers}} ->
-          receive_response(next_conn, request_ref, timeout, new_data, new_headers, new_trailers)
-
-        other ->
-          other
-      end
-    end
-
-    # -------------------------------------------------------------------------
-    # Response receiver loop for Unary calls
-    # -------------------------------------------------------------------------
-
-    defp receive_response(conn, request_ref, timeout, acc_data, acc_headers, acc_trailers) do
-      receive do
-        message ->
-          case Mint.HTTP.stream(conn, message) do
-            {:ok, conn, responses} ->
-              handle_stream_responses(
-                conn,
-                request_ref,
-                timeout,
-                responses,
-                acc_data,
-                acc_headers,
-                acc_trailers
-              )
-
-            {:error, conn, reason, _responses} ->
-              {:error, conn, reason}
-
-            :unknown ->
-              receive_response(
-                conn,
-                request_ref,
-                timeout,
-                acc_data,
-                acc_headers,
-                acc_trailers
-              )
-          end
-      after
-        timeout ->
-          {:error, conn, :timeout}
-      end
-    end
-
-    defp handle_stream_responses(
-           conn,
-           request_ref,
-           timeout,
-           responses,
-           acc_data,
-           acc_headers,
-           acc_trailers
-         ) do
-      Enum.reduce_while(
-        responses,
-        {:cont, {conn, acc_data, acc_headers, acc_trailers}},
-        fn
-          {:status, ^request_ref, status}, {:cont, {c, d, h, t}} ->
-            {:cont, {:cont, {c, d, [{:status, status} | h], t}}}
-
-          {:headers, ^request_ref, headers}, {:cont, {c, d, h, t}} ->
-            {:cont, {:cont, {c, d, h ++ headers, t}}}
-
-          {:data, ^request_ref, chunk}, {:cont, {c, d, h, t}} ->
-            {:cont, {:cont, {c, d <> chunk, h, t}}}
-
-          {:trailers, ^request_ref, trailers}, {:cont, {c, d, h, t}} ->
-            {:cont, {:cont, {c, d, h, t ++ trailers}}}
-
-          {:done, ^request_ref}, {:cont, {c, d, h, t}} ->
-            status =
-              Enum.find_value(h, 200, fn
-                {:status, s} -> s
-                _ -> nil
-              end)
-
-            {:halt, {:ok, c, status, h, d, t}}
-
-          {:error, ^request_ref, reason}, _acc ->
-            {:halt, {:error, conn, reason}}
-
-          _other, acc ->
-            {:cont, acc}
-        end
-      )
-      |> case do
-        {:ok, c, status, h, d, t} ->
-          {:ok, c, status, h, d, t}
-
-        {:error, c, reason} ->
-          {:error, c, reason}
-
-        {:cont, {c, d, h, t}} ->
-          receive_response(c, request_ref, timeout, d, h, t)
-      end
-    end
 
     # -------------------------------------------------------------------------
     # Next Message Receiver for Progressive Streams
