@@ -20,6 +20,10 @@ defmodule SimpleGrpc.Schema.Field do
     :wire_type,
     :is_packable,
     :oneof_name,
+    :oneof_siblings,
+    :default_value,
+    :submessage_desc,
+    :enum_desc,
     options: %{}
   ]
 
@@ -37,6 +41,10 @@ defmodule SimpleGrpc.Schema.Field do
           wire_type: integer() | nil,
           is_packable: boolean() | nil,
           oneof_name: atom() | nil,
+          oneof_siblings: list(atom()) | nil,
+          default_value: any(),
+          submessage_desc: any(),
+          enum_desc: any(),
           options: map()
         }
 
@@ -70,6 +78,7 @@ defmodule SimpleGrpc.Schema.Field do
     wire_type = compute_wire_type(type)
     tag_bytes = if wire_type && is_integer(number), do: encode_tag(number, wire_type), else: nil
     is_packable = compute_is_packable(type)
+    default_value = compute_default_value(type, prefix, :field)
 
     %__MODULE__{
       kind: :field,
@@ -81,7 +90,8 @@ defmodule SimpleGrpc.Schema.Field do
       options: options,
       wire_type: wire_type,
       tag_bytes: tag_bytes,
-      is_packable: is_packable
+      is_packable: is_packable,
+      default_value: default_value
     }
   end
 
@@ -106,7 +116,8 @@ defmodule SimpleGrpc.Schema.Field do
       options: options,
       wire_type: 2,
       tag_bytes: tag_bytes,
-      is_packable: false
+      is_packable: false,
+      default_value: %{}
     }
   end
 
@@ -120,16 +131,43 @@ defmodule SimpleGrpc.Schema.Field do
         _ -> false
       end)
       |> Enum.map(&parse/1)
-      |> Enum.map(fn f -> %{f | oneof_name: oneof_atom} end)
+
+    all_sibling_names = Enum.map(parsed_fields, & &1.name)
+
+    fields_with_siblings =
+      Enum.map(parsed_fields, fn f ->
+        siblings = List.delete(all_sibling_names, f.name)
+        %{f | oneof_name: oneof_atom, oneof_siblings: siblings}
+      end)
 
     %__MODULE__{
       kind: :oneof,
       name: oneof_atom,
-      fields: parsed_fields,
+      fields: fields_with_siblings,
       deprecated: false,
       oneof_name: oneof_atom
     }
   end
+
+  def compute_default_value(_type, :repeated, _kind), do: []
+  def compute_default_value(_type, :optional, _kind), do: nil
+  def compute_default_value(_type, _prefix, :map), do: %{}
+  def compute_default_value("string", prefix, _kind) when prefix in [nil, :none], do: ""
+  def compute_default_value("bytes", prefix, _kind) when prefix in [nil, :none], do: <<>>
+  def compute_default_value("bool", prefix, _kind) when prefix in [nil, :none], do: false
+  def compute_default_value("int32", prefix, _kind) when prefix in [nil, :none], do: 0
+  def compute_default_value("int64", prefix, _kind) when prefix in [nil, :none], do: 0
+  def compute_default_value("uint32", prefix, _kind) when prefix in [nil, :none], do: 0
+  def compute_default_value("uint64", prefix, _kind) when prefix in [nil, :none], do: 0
+  def compute_default_value("sint32", prefix, _kind) when prefix in [nil, :none], do: 0
+  def compute_default_value("sint64", prefix, _kind) when prefix in [nil, :none], do: 0
+  def compute_default_value("fixed32", prefix, _kind) when prefix in [nil, :none], do: 0
+  def compute_default_value("fixed64", prefix, _kind) when prefix in [nil, :none], do: 0
+  def compute_default_value("sfixed32", prefix, _kind) when prefix in [nil, :none], do: 0
+  def compute_default_value("sfixed64", prefix, _kind) when prefix in [nil, :none], do: 0
+  def compute_default_value("float", prefix, _kind) when prefix in [nil, :none], do: 0.0
+  def compute_default_value("double", prefix, _kind) when prefix in [nil, :none], do: 0.0
+  def compute_default_value(_type, _prefix, _kind), do: nil
 
   def compute_wire_type("int32"), do: 0
   def compute_wire_type("int64"), do: 0

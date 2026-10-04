@@ -2,12 +2,14 @@ defmodule SimpleGrpc.Schema do
   @moduledoc """
   Represents a complete protobuf schema containing services, messages, and enums as runtime metadata.
   """
+  import Bitwise
 
   alias SimpleGrpc.Schema.{Service, Message, Field}
   alias SimpleGrpc.Schema.Enum, as: SchemaEnum
 
   defstruct [
     :package,
+    :compiled_module,
     syntax: :proto3,
     services: %{},
     messages: %{},
@@ -165,6 +167,7 @@ defmodule SimpleGrpc.Schema do
       imports: Enum.uniq(s1.imports ++ s2.imports),
       files: Enum.uniq(s1.files ++ s2.files)
     }
+    |> finalize_schema()
   end
 
   @doc """
@@ -280,7 +283,188 @@ defmodule SimpleGrpc.Schema do
       imports: imports,
       files: []
     }
+    |> finalize_schema()
   end
+
+  @doc """
+  Links message submessage_desc and enum_desc on field descriptors and builds fast default_map.
+  """
+  def finalize_schema(%__MODULE__{messages: messages} = schema) do
+    linked_messages =
+      Enum.map(messages, fn {name, msg} ->
+        linked_fields =
+          Enum.map(msg.fields, fn
+            %Field{kind: :oneof, fields: subfields} = oneof_f ->
+              subfield_names = Enum.map(subfields, & &1.name)
+
+              linked_sub =
+                Enum.map(subfields, fn f ->
+                  siblings = List.delete(subfield_names, f.name)
+                  f
+                  |> Map.put(:oneof_siblings, siblings)
+                  |> link_field_descriptors(schema)
+                end)
+
+              %{oneof_f | fields: linked_sub}
+
+            %Field{} = f ->
+              link_field_descriptors(f, schema)
+          end)
+
+        fbn =
+          linked_fields
+          |> Enum.flat_map(fn
+            %Field{kind: :oneof, fields: subs} -> Enum.map(subs, &{&1.number, &1})
+            %Field{number: num} = f when is_integer(num) -> [{num, f}]
+            _ -> []
+          end)
+          |> Map.new()
+
+        fbn_name =
+          linked_fields
+          |> Enum.flat_map(fn
+            %Field{kind: :oneof, fields: subs} -> Enum.map(subs, &{&1.name, &1})
+            %Field{name: fname} = f when is_atom(fname) -> [{fname, f}]
+            _ -> []
+          end)
+          |> Map.new()
+
+        default_map =
+          Enum.reduce(linked_fields, %{}, fn field, acc ->
+            case field.kind do
+              :oneof ->
+                Enum.reduce(field.fields, acc, fn subfield, inner ->
+                  Map.put(inner, subfield.name, nil)
+                end)
+
+              :map ->
+                Map.put(acc, field.name, %{})
+
+              _ ->
+                if field.prefix == :repeated do
+                  Map.put(acc, field.name, [])
+                else
+                  if field.prefix == :optional do
+                    Map.put(acc, field.name, nil)
+                  else
+                    Map.put(acc, field.name, field.default_value)
+                  end
+                end
+            end
+          end)
+
+        repeated_fields =
+          linked_fields
+          |> Enum.filter(fn f -> f.prefix == :repeated end)
+          |> Enum.map(& &1.name)
+
+        {name,
+         %{
+           msg
+           | fields: linked_fields,
+             fields_by_number: fbn,
+             fields_by_name: fbn_name,
+             default_map: default_map,
+             repeated_fields: repeated_fields
+         }}
+      end)
+      |> Map.new()
+
+    finalized = %{schema | messages: linked_messages}
+    SimpleGrpc.Compiler.compile_schema(finalized)
+  end
+
+  defp link_field_descriptors(%Field{type: type, number: num} = field, schema) when is_binary(type) do
+    case field_wire_type(type) do
+      nil ->
+        sub_desc = message(schema, type)
+        enum_desc = enum(schema, type)
+
+        wire_type =
+          cond do
+            enum_desc != nil -> 0
+            sub_desc != nil -> 2
+            true -> nil
+          end
+
+        tag_bytes = if is_integer(num) and is_integer(wire_type), do: encode_tag(num, wire_type), else: nil
+        is_packable = if enum_desc, do: true, else: false
+
+        default_val =
+          cond do
+            enum_desc != nil -> enum_desc.zero_atom || 0
+            sub_desc != nil -> nil
+            true -> nil
+          end
+
+        %{
+          field
+          | submessage_desc: sub_desc,
+            enum_desc: enum_desc,
+            wire_type: wire_type,
+            tag_bytes: tag_bytes,
+            is_packable: is_packable,
+            default_value: default_val
+        }
+
+      wire_type ->
+        tag_bytes = if is_integer(num), do: encode_tag(num, wire_type), else: nil
+        is_packable = is_packable_type(type)
+        default_val = default_scalar_type(type)
+
+        %{
+          field
+          | wire_type: wire_type,
+            tag_bytes: tag_bytes,
+            is_packable: is_packable,
+            default_value: default_val
+        }
+    end
+  end
+
+  defp link_field_descriptors(%Field{number: num, kind: :map} = field, _schema) do
+    tag_bytes = if is_integer(num), do: encode_tag(num, 2), else: nil
+    %{field | wire_type: 2, tag_bytes: tag_bytes, is_packable: false, default_value: %{}}
+  end
+
+  defp link_field_descriptors(field, _schema), do: field
+
+  defp encode_tag(field_num, wire_type) when is_integer(field_num) and is_integer(wire_type) do
+    encode_varint_bin(field_num <<< 3 ||| wire_type)
+  end
+
+  defp encode_varint_bin(n) when is_integer(n) and n >= 0 and n <= 127, do: <<n>>
+  defp encode_varint_bin(n) when is_integer(n) and n >= 0 do
+    <<1::1, (n &&& 0x7F)::7, encode_varint_bin(n >>> 7)::binary>>
+  end
+
+  defp is_packable_type("string"), do: false
+  defp is_packable_type("bytes"), do: false
+  defp is_packable_type(_), do: true
+
+  defp default_scalar_type("string"), do: ""
+  defp default_scalar_type("bytes"), do: <<>>
+  defp default_scalar_type("bool"), do: false
+  defp default_scalar_type("float"), do: 0.0
+  defp default_scalar_type("double"), do: 0.0
+  defp default_scalar_type(_int_type), do: 0
+
+  defp field_wire_type("int32"), do: 0
+  defp field_wire_type("int64"), do: 0
+  defp field_wire_type("uint32"), do: 0
+  defp field_wire_type("uint64"), do: 0
+  defp field_wire_type("sint32"), do: 0
+  defp field_wire_type("sint64"), do: 0
+  defp field_wire_type("bool"), do: 0
+  defp field_wire_type("fixed64"), do: 1
+  defp field_wire_type("sfixed64"), do: 1
+  defp field_wire_type("double"), do: 1
+  defp field_wire_type("string"), do: 2
+  defp field_wire_type("bytes"), do: 2
+  defp field_wire_type("fixed32"), do: 5
+  defp field_wire_type("sfixed32"), do: 5
+  defp field_wire_type("float"), do: 5
+  defp field_wire_type(_), do: nil
 
   @doc """
   Finds a service by name or full name.

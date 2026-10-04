@@ -6,7 +6,7 @@ defmodule SimpleGrpc.Plug do
 
   import Plug.Conn
 
-  alias SimpleGrpc.{Registry, Dispatcher, Protobuf}
+  alias SimpleGrpc.{Registry, Dispatcher, Protobuf, Status}
 
   @behaviour Plug
 
@@ -495,11 +495,13 @@ defmodule SimpleGrpc.Plug do
   defp maybe_put_encoding_header(conn, _), do: conn
 
   defp send_trailers_only(conn, status_code, status_message) do
+    code_int = Status.code(status_code)
+
     headers = [
       {":status", "200"},
       {"content-type", "application/grpc"},
       {"grpc-accept-encoding", "identity,gzip"},
-      {"grpc-status", to_string(status_code)},
+      {"grpc-status", to_string(code_int)},
       {"grpc-message", to_string(status_message)}
     ]
 
@@ -515,7 +517,7 @@ defmodule SimpleGrpc.Plug do
         conn
         |> put_resp_header("content-type", "application/grpc")
         |> put_resp_header("grpc-accept-encoding", "identity,gzip")
-        |> put_resp_header("grpc-status", to_string(status_code))
+        |> put_resp_header("grpc-status", to_string(code_int))
         |> put_resp_header("grpc-message", to_string(status_message))
         |> send_resp(200, "")
     end

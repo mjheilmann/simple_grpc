@@ -15,6 +15,8 @@ defmodule SimpleGrpc.Schema.Message do
     nested_messages: [],
     nested_enums: [],
     has_oneofs: false,
+    default_map: nil,
+    repeated_fields: [],
     options: %{}
   ]
 
@@ -26,6 +28,9 @@ defmodule SimpleGrpc.Schema.Message do
           fields_by_name: %{atom() => Field.t()},
           nested_messages: list(t()),
           nested_enums: list(SchemaEnum.t() | map()),
+          has_oneofs: boolean(),
+          default_map: map() | nil,
+          repeated_fields: list(atom()),
           options: map()
         }
 
@@ -98,6 +103,35 @@ defmodule SimpleGrpc.Schema.Message do
 
     has_oneofs = Enum.any?(fields, fn f -> f.kind == :oneof end)
 
+    default_map =
+      Enum.reduce(fields, %{}, fn field, acc ->
+        case field.kind do
+          :oneof ->
+            Enum.reduce(field.fields, acc, fn subfield, inner ->
+              Map.put(inner, subfield.name, nil)
+            end)
+
+          :map ->
+            Map.put(acc, field.name, %{})
+
+          _ ->
+            if field.prefix == :repeated do
+              Map.put(acc, field.name, [])
+            else
+              if field.prefix == :optional do
+                Map.put(acc, field.name, nil)
+              else
+                Map.put(acc, field.name, field.default_value)
+              end
+            end
+        end
+      end)
+
+    repeated_fields =
+      fields
+      |> Enum.filter(fn f -> f.prefix == :repeated end)
+      |> Enum.map(& &1.name)
+
     %__MODULE__{
       name: name,
       full_name: name,
@@ -107,6 +141,8 @@ defmodule SimpleGrpc.Schema.Message do
       nested_messages: nested_messages,
       nested_enums: nested_enums,
       has_oneofs: has_oneofs,
+      default_map: default_map,
+      repeated_fields: repeated_fields,
       options: options
     }
   end

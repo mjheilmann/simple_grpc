@@ -164,7 +164,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
     %Field{name: :map_entry, number: 7, type: "bool", kind: :field}
   ])
 
-  @descriptor_schema %Schema{
+  @descriptor_schema Schema.finalize_schema(%Schema{
     syntax: :proto3,
     messages: %{
       "FileDescriptorProto" => @file_descriptor_proto,
@@ -177,7 +177,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
       "MethodDescriptorProto" => @method_descriptor_proto,
       "MessageOptions" => @message_options
     }
-  }
+  })
 
   @doc """
   Returns the internal descriptor schema used for encoding and decoding FileDescriptorProtos.
@@ -198,14 +198,14 @@ defmodule SimpleGrpc.Reflection.Descriptor do
   """
   def encode_file_descriptor(%Schema{} = schema, filename \\ nil) do
     fdp_map = schema_to_file_descriptor_proto(schema, filename)
-    Protobuf.encode!(@file_descriptor_proto, fdp_map, @descriptor_schema)
+    Protobuf.encode!(@descriptor_schema.messages["FileDescriptorProto"], fdp_map, @descriptor_schema)
   end
 
   @doc """
   Decodes a binary `FileDescriptorProto` payload into a `%SimpleGrpc.Schema{}` struct.
   """
   def decode_file_descriptor(binary) when is_binary(binary) do
-    decoded_map = Protobuf.decode!(@file_descriptor_proto, binary, @descriptor_schema)
+    decoded_map = Protobuf.decode!(@descriptor_schema.messages["FileDescriptorProto"], binary, @descriptor_schema)
     file_descriptor_proto_to_schema(decoded_map)
   end
 

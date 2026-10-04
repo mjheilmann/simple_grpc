@@ -68,6 +68,59 @@ plug SimpleGrpc.Plug,
 
 ---
 
+## Streaming (Lazy, Memory-Efficient & Concurrent)
+
+`SimpleGrpc` handles all 4 gRPC streaming patterns lazily over HTTP/2 without buffering entire streams into memory:
+
+| Pattern | Handler Signature | Data Flow & Memory |
+| :--- | :--- | :--- |
+| **Unary** | `def call(req, _conn) -> {:ok, %{...}}` | Single bounded request/response. |
+| **Server Streaming** | `def call(req, _conn) -> Enumerable.t()` | Emits a lazy `Stream`. Each item is immediately encoded and flushed via HTTP/2 chunking ($O(1)$ memory). |
+| **Client Streaming** | `def call(req_stream, _conn) -> {:ok, %{...}}` | Receives a lazy `Stream`. Frames are read and decoded on demand as the handler iterates (e.g. `Enum.reduce/3`). |
+| **Bidirectional Streaming** | `def call(req_stream, _conn) -> Enumerable.t()` | Consumes request frames and emits response chunks concurrently over the active HTTP/2 stream. |
+
+### Streaming Server Example
+
+```elixir
+defmodule MyStreamingServer do
+  use SimpleGrpc.Server,
+    server_file: "priv/protos/streaming_service.proto"
+
+  # 1. Server Streaming: Single request -> lazy Stream of responses
+  def server_streaming_call(req, _conn) do
+    1..10_000
+    |> Stream.map(fn seq ->
+      %{result: "Data chunk #{seq} for #{req.message}", sequence: seq, is_final: seq == 10_000}
+    end)
+  end
+
+  # 2. Client Streaming: Lazy request Stream -> single response
+  def client_streaming_call(req_stream, _conn) do
+    {count, total_seq} =
+      Enum.reduce(req_stream, {0, 0}, fn req, {c, s} ->
+        {c + 1, s + req.sequence}
+      end)
+
+    {:ok, %{result: "Processed #{count} items", sequence: total_seq, is_final: true}}
+  end
+
+  # 3. Bidirectional Streaming: Lazy request Stream -> lazy response Stream
+  def bidirectional_streaming_call(req_stream, _conn) do
+    Stream.map(req_stream, fn req ->
+      %{result: "Echo: " <> req.message, sequence: req.sequence * 2, is_final: false}
+    end)
+  end
+end
+```
+
+### Why Lazy Streaming?
+
+1. **$O(1)$ Memory Footprint**: Messages are read and written frame-by-frame. You can stream gigabytes of telemetry or millions of rows with minimal RAM usage.
+2. **Immediate Time-to-First-Byte (TTFB)**: Response chunks begin arriving at the client within milliseconds of being generated.
+3. **Natural Backpressure**: Because request reading is demand-driven via `Stream.resource`, slow consumer processing pauses socket consumption, automatically throttling the producer via standard HTTP/2 flow control windows.
+
+---
+
 ## Testing with In-Memory Plug (`SimpleGrpc.Case`)
 
 `SimpleGrpc` provides `SimpleGrpc.Case` (an `ExUnit.CaseTemplate`) for testing your gRPC services and plugs directly in-memory without starting Bandit or binding a TCP port.
