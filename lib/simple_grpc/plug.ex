@@ -13,7 +13,14 @@ defmodule SimpleGrpc.Plug do
   @impl true
   def init(opts) do
     opts_map = Enum.into(opts, %{})
-    services = Map.get(opts_map, :services)
+
+    services =
+      cond do
+        Map.has_key?(opts_map, :services) -> Map.get(opts_map, :services)
+        Map.has_key?(opts_map, :server) -> [Map.get(opts_map, :server)]
+        true -> nil
+      end
+
     reflection_opt = Map.get(opts_map, :reflection, false)
     health_opt = Map.get(opts_map, :health, false)
     unmatched = Map.get(opts_map, :unmatched, :unimplemented)
@@ -98,6 +105,8 @@ defmodule SimpleGrpc.Plug do
     Enum.reduce(services, %{}, fn item, acc ->
       case item do
         mod when is_atom(mod) ->
+          Code.ensure_loaded(mod)
+
           if function_exported?(mod, :__schema__, 0) do
             schema = mod.__schema__()
             {:ok, routes} = Registry.generate_routes(schema, mod)
@@ -111,6 +120,8 @@ defmodule SimpleGrpc.Plug do
           Map.merge(acc, routes)
 
         {mod, handlers} when is_atom(mod) ->
+          Code.ensure_loaded(mod)
+
           if function_exported?(mod, :__schema__, 0) do
             schema = mod.__schema__()
             {:ok, routes} = Registry.generate_routes(schema, handlers)
@@ -132,6 +143,7 @@ defmodule SimpleGrpc.Plug do
   defp extract_schemas_from_services(services) when is_list(services) do
     Enum.flat_map(services, fn
       mod when is_atom(mod) ->
+        Code.ensure_loaded(mod)
         if function_exported?(mod, :__schema__, 0), do: [mod.__schema__()], else: []
 
       %SimpleGrpc.Schema{} = s ->

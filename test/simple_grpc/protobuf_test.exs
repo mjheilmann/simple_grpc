@@ -650,5 +650,29 @@ defmodule SimpleGrpc.ProtobufTest do
 
       assert decoded.statuses == [:STATUS_ACTIVE, :STATUS_PAUSED, :STATUS_ACTIVE]
     end
+
+    test "preserves exact ordering on large repeated lists of scalars and nested messages" do
+      msg = %Message{
+        name: "LargeRepeatedMessage",
+        fields: [
+          %Field{name: :numbers, number: 1, type: "int32", prefix: :repeated, kind: :field},
+          %Field{name: :tags, number: 2, type: "string", prefix: :repeated, kind: :field}
+        ],
+        fields_by_number: %{
+          1 => %Field{name: :numbers, number: 1, type: "int32", prefix: :repeated, kind: :field},
+          2 => %Field{name: :tags, number: 2, type: "string", prefix: :repeated, kind: :field}
+        }
+      }
+
+      numbers = Enum.to_list(1..5_000)
+      tags = Enum.map(1..5_000, &"tag-#{&1}")
+      payload = %{numbers: numbers, tags: tags}
+
+      encoded = Protobuf.encode!(msg, payload)
+      decoded = Protobuf.decode!(msg, encoded)
+
+      assert decoded.numbers == numbers
+      assert decoded.tags == tags
+    end
   end
 end

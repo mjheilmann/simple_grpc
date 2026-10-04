@@ -59,20 +59,10 @@ defmodule SimpleGrpc.Server do
 
     handlers_ast = Keyword.get(opts, :handlers, [])
 
-    needed_message_names =
-      rpcs
-      |> Enum.flat_map(fn rpc ->
-        [
-          rpc.input |> String.split(".") |> List.first(),
-          rpc.output |> String.split(".") |> List.first()
-        ]
-      end)
-      |> Enum.uniq()
-
     message_asts =
       ast
       |> Enum.filter(fn
-        {:message, [name | _]} -> name in needed_message_names
+        {:message, [_name | _]} -> true
         _ -> false
       end)
 

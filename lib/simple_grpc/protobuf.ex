@@ -116,29 +116,34 @@ defmodule SimpleGrpc.Protobuf do
     if is_packable_type?(field.type, schema_ctx, msg_desc) do
       # Proto3 packed repeated encoding
       packed_bytes =
-        Enum.reduce(list, <<>>, fn item, acc ->
-          acc <> encode_raw_value(field.type, item, schema_ctx, msg_desc)
+        list
+        |> Enum.map(fn item ->
+          encode_raw_value(field.type, item, schema_ctx, msg_desc)
         end)
+        |> IO.iodata_to_binary()
 
       tag = encode_tag(field.number, 2)
       tag <> encode_varint(byte_size(packed_bytes)) <> packed_bytes
     else
       # Unpacked repeated encoding
-      Enum.reduce(list, <<>>, fn item, acc ->
-        acc <> encode_single_field(field.number, field.type, item, schema_ctx, msg_desc)
+      list
+      |> Enum.map(fn item ->
+        encode_single_field(field.number, field.type, item, schema_ctx, msg_desc)
       end)
+      |> IO.iodata_to_binary()
     end
   end
 
   defp encode_map_entries(field, map, schema_ctx, msg_desc) when is_map(map) do
-    Enum.reduce(map, <<>>, fn {k, v}, acc ->
+    map
+    |> Enum.map(fn {k, v} ->
       k_bytes = encode_single_field(1, field.key_type, k, schema_ctx, msg_desc)
       v_bytes = encode_single_field(2, field.val_type, v, schema_ctx, msg_desc)
       entry_payload = k_bytes <> v_bytes
-
       tag = encode_tag(field.number, 2)
-      acc <> tag <> encode_varint(byte_size(entry_payload)) <> entry_payload
+      [tag, encode_varint(byte_size(entry_payload)), entry_payload]
     end)
+    |> IO.iodata_to_binary()
   end
 
   defp encode_single_field(field_num, type, value, schema_ctx, msg_desc) do
@@ -498,10 +503,16 @@ defmodule SimpleGrpc.Protobuf do
     Map.put(acc, field.name, Map.put(existing_map, k, v))
   end
 
+  defp store_decoded_field(acc, %Field{prefix: :repeated} = field, [single_item], _msg_desc) do
+    existing_list = Map.get(acc, field.name, [])
+    Map.put(acc, field.name, [single_item | existing_list])
+  end
+
   defp store_decoded_field(acc, %Field{prefix: :repeated} = field, items, _msg_desc)
        when is_list(items) do
     existing_list = Map.get(acc, field.name, [])
-    Map.put(acc, field.name, existing_list ++ items)
+    reversed_items = Enum.reverse(items)
+    Map.put(acc, field.name, reversed_items ++ existing_list)
   end
 
   defp store_decoded_field(acc, field, value, msg_desc) do
@@ -567,7 +578,7 @@ defmodule SimpleGrpc.Protobuf do
         _ ->
           if field.prefix == :repeated do
             val = Map.get(raw_map, field.name, [])
-            Map.put(acc, field.name, val)
+            Map.put(acc, field.name, Enum.reverse(val))
           else
             if field.prefix == :optional do
               # Optional field: preserve as nil if missing on wire

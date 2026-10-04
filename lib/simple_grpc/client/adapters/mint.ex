@@ -61,9 +61,11 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
       ]
 
       with {:ok, conn, request_ref} <-
-             Mint.HTTP.request(state.conn, "POST", path, headers, framed_payload),
+             Mint.HTTP.request(state.conn, "POST", path, headers, :stream),
+           {:ok, conn, early_responses} <-
+             stream_large_body(conn, request_ref, framed_payload, timeout, []),
            {:ok, next_conn, status, resp_headers, resp_data, trailers} <-
-             receive_response(conn, request_ref, timeout, <<>>, [], []) do
+             receive_response_with_early(conn, request_ref, timeout, early_responses, <<>>, [], []) do
         {grpc_status, grpc_msg} =
           Framing.extract_grpc_status(trailers ++ resp_headers)
 
@@ -199,6 +201,72 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
 
         :unknown ->
           {:noreply, state}
+      end
+    end
+
+    defp stream_large_body(conn, request_ref, <<>>, _timeout, early_responses) do
+      case Mint.HTTP.stream_request_body(conn, request_ref, :eof) do
+        {:ok, next_conn} -> {:ok, next_conn, early_responses}
+        {:error, next_conn, reason} -> {:error, next_conn, reason}
+      end
+    end
+
+    defp stream_large_body(conn, request_ref, data, timeout, early_responses) when is_binary(data) do
+      if is_struct(conn, Mint.HTTP2) and not Map.has_key?(conn.ref_to_stream_id, request_ref) do
+        {:ok, conn, early_responses}
+      else
+        window =
+          if is_struct(conn, Mint.HTTP2) do
+            cw = Mint.HTTP2.get_window_size(conn, :connection)
+            rw = Mint.HTTP2.get_window_size(conn, {:request, request_ref})
+            max(min(cw, rw), 0)
+          else
+            byte_size(data)
+          end
+
+        if window > 0 do
+          chunk_len = min(min(window, 16384), byte_size(data))
+          <<chunk::binary-size(^chunk_len), rest::binary>> = data
+
+          case Mint.HTTP.stream_request_body(conn, request_ref, chunk) do
+            {:ok, next_conn} ->
+              stream_large_body(next_conn, request_ref, rest, timeout, early_responses)
+
+            {:error, next_conn, reason} ->
+              {:error, next_conn, reason}
+          end
+        else
+          receive do
+            message ->
+              case Mint.HTTP.stream(conn, message) do
+                {:ok, next_conn, responses} ->
+                  stream_large_body(next_conn, request_ref, data, timeout, early_responses ++ responses)
+
+                {:error, next_conn, reason, _responses} ->
+                  {:error, next_conn, reason}
+
+                :unknown ->
+                  stream_large_body(conn, request_ref, data, timeout, early_responses)
+              end
+          after
+            timeout ->
+              {:error, conn, :timeout}
+          end
+        end
+      end
+    end
+
+    defp receive_response_with_early(conn, request_ref, timeout, [], acc_data, acc_headers, acc_trailers) do
+      receive_response(conn, request_ref, timeout, acc_data, acc_headers, acc_trailers)
+    end
+
+    defp receive_response_with_early(conn, request_ref, timeout, early_responses, acc_data, acc_headers, acc_trailers) do
+      case handle_stream_responses(conn, request_ref, timeout, early_responses, acc_data, acc_headers, acc_trailers) do
+        {:cont, {next_conn, new_data, new_headers, new_trailers}} ->
+          receive_response(next_conn, request_ref, timeout, new_data, new_headers, new_trailers)
+
+        other ->
+          other
       end
     end
 

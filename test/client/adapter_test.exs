@@ -156,5 +156,23 @@ defmodule SimpleGrpc.Client.AdapterTest do
 
       :ok = SimpleGrpc.Client.close(conn)
     end
+
+    test "streams large unary payloads exceeding HTTP/2 initial window size (> 65,535 bytes)",
+         %{schema: schema, port: port} do
+      {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{port}", adapter: :mint)
+
+      large_message = String.duplicate("A", 150_000)
+      req_bytes = Protobuf.encode!("StreamRequest", %{message: large_message, sequence: 1}, schema)
+      assert byte_size(req_bytes) > 65_535
+
+      path = "/streaming.StreamingService/UnaryCall"
+      {:ok, resp_bytes, _headers, _trailers} = SimpleGrpc.Client.send_unary(conn, path, req_bytes, timeout: 15_000)
+
+      {:ok, decoded} = Protobuf.decode("StreamResponse", resp_bytes, schema)
+      assert decoded.result == "Echo: " <> large_message
+      assert decoded.sequence == 2
+
+      :ok = SimpleGrpc.Client.close(conn)
+    end
   end
 end

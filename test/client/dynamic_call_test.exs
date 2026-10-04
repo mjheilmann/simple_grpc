@@ -175,6 +175,22 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
 
       assert response.result == "Echo: Preloaded"
     end
+
+    test "auto-resolves schema from proto file path string" do
+      {:ok, client} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, schema: @proto_file)
+      assert is_struct(client.schema, SimpleGrpc.Schema)
+      assert Map.has_key?(client.schema.services, "streaming.StreamingService")
+
+      assert {:ok, response} =
+               SimpleGrpc.Client.call(
+                 client,
+                 "streaming.StreamingService/UnaryCall",
+                 %{message: "FromPath", sequence: 7}
+               )
+
+      assert response.result == "Echo: FromPath"
+      assert response.sequence == 8
+    end
   end
 
   describe "Dynamic Client.call over HTTP/2 Mint transport with reflection" do

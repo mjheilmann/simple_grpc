@@ -26,12 +26,26 @@ defmodule SimpleGrpc.Client do
 
     case adapter.connect(target, opts) do
       {:ok, adapter_state} ->
+        raw_schema = Keyword.get(opts, :schema)
+
+        schema =
+          cond do
+            is_binary(raw_schema) ->
+              case SimpleGrpc.Schema.from_file(raw_schema) do
+                {:ok, s} -> s
+                _ -> raw_schema
+              end
+
+            true ->
+              raw_schema
+          end
+
         conn = %Conn{
           adapter: adapter,
           state: adapter_state,
           target: target,
           opts: opts,
-          schema: Keyword.get(opts, :schema)
+          schema: schema
         }
 
         if Keyword.get(opts, :reflection, false) do

@@ -427,4 +427,31 @@ defmodule SimpleGrpc.ServerTest do
                nil
              )
   end
+
+  test "Server generates struct modules for all messages defined in proto, including non-RPC messages" do
+    # ComplexNested is not used in NestedService RPCs, but is generated as a struct
+    assert Code.ensure_loaded?(SampleNestedServer.ComplexNested)
+    assert Code.ensure_loaded?(SampleNestedServer.OuterMessage)
+
+    struct = SampleNestedServer.ComplexNested.new(%{status: :ACTIVE})
+    assert struct.status == :ACTIVE
+    assert is_struct(struct, SampleNestedServer.ComplexNested)
+  end
+
+  test "SimpleGrpc.Plug correctly initializes routes when configured with server: ServerModule" do
+    plug_state = SimpleGrpc.Plug.init(server: SampleEchoServer)
+    assert map_size(plug_state.routes) > 0
+    assert Map.has_key?(plug_state.routes, "/custom_prefix.PrefixService/Echo")
+
+    # Send in-memory request through Plug
+    {:ok, conn} = SimpleGrpc.Client.connect({SimpleGrpc.Plug, server: SampleEchoServer}, adapter: :plug)
+    {:ok, schema} = SimpleGrpc.Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+    req_bytes = SimpleGrpc.Protobuf.encode!("EchoRequest", %{message: "ServerOptTest"}, schema)
+
+    {:ok, resp_bytes, _headers, _trailers} =
+      SimpleGrpc.Client.send_unary(conn, "/custom_prefix.PrefixService/Echo", req_bytes)
+
+    {:ok, decoded} = SimpleGrpc.Protobuf.decode("EchoResponse", resp_bytes, schema)
+    assert decoded.reply == "Echo: ServerOptTest"
+  end
 end
