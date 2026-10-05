@@ -5,6 +5,7 @@ defmodule SimpleGrpc.Plug do
   """
 
   import Plug.Conn
+  require Logger
 
   alias SimpleGrpc.{Registry, Dispatcher, Protobuf, Status}
 
@@ -271,16 +272,20 @@ defmodule SimpleGrpc.Plug do
 
         e ->
           msg_str = Exception.message(e)
+          formatted = Exception.format(:error, e, __STACKTRACE__)
+          Logger.error("[SimpleGrpc.Plug] Crash in gRPC handler for #{path}:\n#{formatted}")
           emit_telemetry_exception(conn, path, route, :error, e, __STACKTRACE__, start_time)
-          send_trailers_only(conn, 2, msg_str)
+          send_trailers_only(conn, 13, "Internal server error: #{msg_str}")
       catch
         :throw, {:error, code, msg} ->
           emit_telemetry_stop(conn, path, route, nil, nil, code, to_string(msg), start_time)
           send_trailers_only(conn, code, to_string(msg))
 
         kind, reason ->
+          formatted = Exception.format(kind, reason, __STACKTRACE__)
+          Logger.error("[SimpleGrpc.Plug] Uncaught #{kind} in gRPC handler for #{path}:\n#{formatted}")
           emit_telemetry_exception(conn, path, route, kind, reason, __STACKTRACE__, start_time)
-          send_trailers_only(conn, 2, inspect(reason))
+          send_trailers_only(conn, 13, "Internal server error: #{inspect(reason)}")
       end
     end
   end
