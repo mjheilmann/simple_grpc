@@ -257,13 +257,15 @@ defmodule SimpleGrpc.Server do
 
         req =
           cond do
-            rpc.request_stream and (is_struct(request_payload, Stream) or is_function(request_payload, 2)) ->
+            rpc.request_stream and
+                (is_struct(request_payload, Stream) or is_function(request_payload, 2)) ->
               Stream.map(request_payload, &req_mod.new/1)
 
             is_struct(request_payload, req_mod) ->
               request_payload
 
-            is_map(request_payload) or (is_list(request_payload) and Keyword.keyword?(request_payload)) ->
+            is_map(request_payload) or
+                (is_list(request_payload) and Keyword.keyword?(request_payload)) ->
               req_mod.new(request_payload)
 
             rpc.request_stream and is_list(request_payload) ->

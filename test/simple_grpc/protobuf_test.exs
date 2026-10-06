@@ -418,18 +418,25 @@ defmodule SimpleGrpc.ProtobufTest do
           %Field{name: :req_str, number: 9, type: "string", kind: :field}
         ],
         fields_by_number: %{
-          1 =>
-            %Field{name: :opt_int32, number: 1, type: "int32", prefix: :optional, kind: :field},
-          2 =>
-            %Field{name: :opt_sint32, number: 2, type: "sint32", prefix: :optional, kind: :field},
+          1 => %Field{name: :opt_int32, number: 1, type: "int32", prefix: :optional, kind: :field},
+          2 => %Field{
+            name: :opt_sint32,
+            number: 2,
+            type: "sint32",
+            prefix: :optional,
+            kind: :field
+          },
           3 => %Field{name: :opt_bool, number: 3, type: "bool", prefix: :optional, kind: :field},
-          4 =>
-            %Field{name: :opt_float, number: 4, type: "float", prefix: :optional, kind: :field},
-          5 =>
-            %Field{name: :opt_double, number: 5, type: "double", prefix: :optional, kind: :field},
+          4 => %Field{name: :opt_float, number: 4, type: "float", prefix: :optional, kind: :field},
+          5 => %Field{
+            name: :opt_double,
+            number: 5,
+            type: "double",
+            prefix: :optional,
+            kind: :field
+          },
           6 => %Field{name: :opt_str, number: 6, type: "string", prefix: :optional, kind: :field},
-          7 =>
-            %Field{name: :opt_bytes, number: 7, type: "bytes", prefix: :optional, kind: :field},
+          7 => %Field{name: :opt_bytes, number: 7, type: "bytes", prefix: :optional, kind: :field},
           8 => %Field{name: :req_int32, number: 8, type: "int32", kind: :field},
           9 => %Field{name: :req_str, number: 9, type: "string", kind: :field}
         }
@@ -633,8 +640,7 @@ defmodule SimpleGrpc.ProtobufTest do
           %Field{name: :statuses, number: 1, type: "Status", prefix: :repeated, kind: :field}
         ],
         fields_by_number: %{
-          1 =>
-            %Field{name: :statuses, number: 1, type: "Status", prefix: :repeated, kind: :field}
+          1 => %Field{name: :statuses, number: 1, type: "Status", prefix: :repeated, kind: :field}
         },
         nested_enums: [
           %Schema.Enum{

@@ -126,9 +126,15 @@ defmodule SimpleGrpc.Coercer do
   end
 
   defp coerce_field_value(val, %Field{kind: :map}, _mod) when is_map(val), do: val
-  defp coerce_field_value(val, %Field{kind: :map}, _mod) when is_list(val), do: Enum.into(val, %{})
+
+  defp coerce_field_value(val, %Field{kind: :map}, _mod) when is_list(val),
+    do: Enum.into(val, %{})
+
   defp coerce_field_value(val, %Field{type: "string"}, _mod) when is_binary(val), do: val
-  defp coerce_field_value(val, %Field{type: "string"}, _mod) when is_atom(val), do: Atom.to_string(val)
+
+  defp coerce_field_value(val, %Field{type: "string"}, _mod) when is_atom(val),
+    do: Atom.to_string(val)
+
   defp coerce_field_value(val, %Field{type: "bytes"}, _mod) when is_binary(val), do: val
   defp coerce_field_value(val, %Field{type: "bool"}, _mod) when is_boolean(val), do: val
 

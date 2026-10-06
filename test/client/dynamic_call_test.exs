@@ -177,7 +177,9 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
     end
 
     test "auto-resolves schema from proto file path string" do
-      {:ok, client} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, schema: @proto_file)
+      {:ok, client} =
+        SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, schema: @proto_file)
+
       assert is_struct(client.schema, SimpleGrpc.Schema)
       assert Map.has_key?(client.schema.services, "streaming.StreamingService")
 
@@ -194,10 +196,13 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
   end
 
   describe "Dynamic Client.call over HTTP/2 Mint transport with reflection" do
-    test "connects over HTTP/2 with reflection: true and makes dynamic unary and streaming calls", %{
-      port: port
-    } do
-      {:ok, client} = SimpleGrpc.Client.connect("localhost:#{port}", adapter: :mint, reflection: true)
+    test "connects over HTTP/2 with reflection: true and makes dynamic unary and streaming calls",
+         %{
+           port: port
+         } do
+      {:ok, client} =
+        SimpleGrpc.Client.connect("localhost:#{port}", adapter: :mint, reflection: true)
+
       assert client.schema != nil
 
       # 1. Unary call

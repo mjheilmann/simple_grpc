@@ -110,7 +110,8 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
     grpcurl: grpcurl,
     port: port
   } do
-    frames = ~s({"message": "First", "sequence": 1}\n{"message": "Second", "sequence": 2}\n{"message": "Third", "sequence": 3})
+    frames =
+      ~s({"message": "First", "sequence": 1}\n{"message": "Second", "sequence": 2}\n{"message": "Third", "sequence": 3})
 
     {output, 0} =
       System.cmd(
@@ -136,7 +137,8 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
     grpcurl: grpcurl,
     port: port
   } do
-    frames = ~s({"message": "Alpha", "sequence": 1}\n{"message": "Beta", "sequence": 2}\n{"message": "Gamma", "sequence": 3})
+    frames =
+      ~s({"message": "Alpha", "sequence": 1}\n{"message": "Beta", "sequence": 2}\n{"message": "Gamma", "sequence": 3})
 
     {output, 0} =
       System.cmd(

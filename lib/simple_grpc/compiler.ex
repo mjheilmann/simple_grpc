@@ -39,13 +39,22 @@ defmodule SimpleGrpc.Compiler do
     kind, reason ->
       # If JIT compilation encounters any unsupported construct, safely fall back to dynamic
       require Logger
-      Logger.debug("[SimpleGrpc.Compiler] Schema compilation falling back to dynamic: #{inspect(kind)} #{inspect(reason)}")
+
+      Logger.debug(
+        "[SimpleGrpc.Compiler] Schema compilation falling back to dynamic: #{inspect(kind)} #{inspect(reason)}"
+      )
+
       schema
   end
 
   defp generate_module_name(%Schema{package: package}) do
     uniq = System.unique_integer([:positive])
-    pkg_part = if package && package != "", do: Macro.camelize(String.replace(package, ".", "_")), else: "Root"
+
+    pkg_part =
+      if package && package != "",
+        do: Macro.camelize(String.replace(package, ".", "_")),
+        else: "Root"
+
     Module.concat([SimpleGrpc.Compiled, :"#{pkg_part}_#{uniq}"])
   end
 
@@ -62,11 +71,12 @@ defmodule SimpleGrpc.Compiler do
         ]
 
         if short_name != name do
-          clauses ++ [
-            quote do
-              def decode(unquote(short_name), binary), do: unquote(fun_name)(binary)
-            end
-          ]
+          clauses ++
+            [
+              quote do
+                def decode(unquote(short_name), binary), do: unquote(fun_name)(binary)
+              end
+            ]
         else
           clauses
         end
@@ -84,11 +94,12 @@ defmodule SimpleGrpc.Compiler do
         ]
 
         if short_name != name do
-          clauses ++ [
-            quote do
-              def encode(unquote(short_name), data), do: unquote(fun_name)(data)
-            end
-          ]
+          clauses ++
+            [
+              quote do
+                def encode(unquote(short_name), data), do: unquote(fun_name)(data)
+              end
+            ]
         else
           clauses
         end
@@ -163,6 +174,7 @@ defmodule SimpleGrpc.Compiler do
         defp unquote(decode_loop_fn)(binary, acc) when is_binary(binary) do
           {tag, rest1} = SimpleGrpc.Protobuf.decode_varint(binary)
           wire_type = tag &&& 7
+
           case SimpleGrpc.Protobuf.skip_wire_value(rest1, wire_type) do
             {:ok, rest2} -> unquote(decode_loop_fn)(rest2, acc)
             {:error, _} -> acc
@@ -202,7 +214,11 @@ defmodule SimpleGrpc.Compiler do
     end)
   end
 
-  defp generate_field_decode_clauses(loop_fn, %Field{tag_bytes: tag_bytes, wire_type: wire_type} = field, _schema)
+  defp generate_field_decode_clauses(
+         loop_fn,
+         %Field{tag_bytes: tag_bytes, wire_type: wire_type} = field,
+         _schema
+       )
        when is_binary(tag_bytes) and is_integer(wire_type) do
     field_name = field.name
     is_single_byte_tag = byte_size(tag_bytes) == 1
@@ -213,9 +229,17 @@ defmodule SimpleGrpc.Compiler do
         if is_single_byte_tag do
           [
             quote do
-              defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, 0::1, len::7, sub_bytes::binary-size(len), rest::binary>>, acc) do
+              defp unquote(loop_fn)(
+                     <<unquote(tag_bytes)::binary, 0::1, len::7, sub_bytes::binary-size(len),
+                       rest::binary>>,
+                     acc
+                   ) do
                 sub = decode(unquote(sub_type), sub_bytes)
-                unquote(loop_fn)(rest, %{acc | unquote(field_name) => [sub | acc.unquote(field_name)]})
+
+                unquote(loop_fn)(rest, %{
+                  acc
+                  | unquote(field_name) => [sub | acc.unquote(field_name)]
+                })
               end
             end,
             quote do
@@ -223,7 +247,11 @@ defmodule SimpleGrpc.Compiler do
                 {len, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
                 <<sub_bytes::binary-size(^len), rest3::binary>> = rest2
                 sub = decode(unquote(sub_type), sub_bytes)
-                unquote(loop_fn)(rest3, %{acc | unquote(field_name) => [sub | acc.unquote(field_name)]})
+
+                unquote(loop_fn)(rest3, %{
+                  acc
+                  | unquote(field_name) => [sub | acc.unquote(field_name)]
+                })
               end
             end
           ]
@@ -234,7 +262,11 @@ defmodule SimpleGrpc.Compiler do
                 {len, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
                 <<sub_bytes::binary-size(^len), rest3::binary>> = rest2
                 sub = decode(unquote(sub_type), sub_bytes)
-                unquote(loop_fn)(rest3, %{acc | unquote(field_name) => [sub | acc.unquote(field_name)]})
+
+                unquote(loop_fn)(rest3, %{
+                  acc
+                  | unquote(field_name) => [sub | acc.unquote(field_name)]
+                })
               end
             end
           ]
@@ -245,7 +277,11 @@ defmodule SimpleGrpc.Compiler do
         if is_single_byte_tag do
           [
             quote do
-              defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, 0::1, len::7, sub_bytes::binary-size(len), rest::binary>>, acc) do
+              defp unquote(loop_fn)(
+                     <<unquote(tag_bytes)::binary, 0::1, len::7, sub_bytes::binary-size(len),
+                       rest::binary>>,
+                     acc
+                   ) do
                 sub = decode(unquote(sub_type), sub_bytes)
                 unquote(loop_fn)(rest, %{acc | unquote(field_name) => sub})
               end
@@ -277,15 +313,26 @@ defmodule SimpleGrpc.Compiler do
         if is_single_byte_tag do
           [
             quote do
-              defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, 0::1, len::7, str::binary-size(len), rest::binary>>, acc) do
-                unquote(loop_fn)(rest, %{acc | unquote(field_name) => [str | acc.unquote(field_name)]})
+              defp unquote(loop_fn)(
+                     <<unquote(tag_bytes)::binary, 0::1, len::7, str::binary-size(len),
+                       rest::binary>>,
+                     acc
+                   ) do
+                unquote(loop_fn)(rest, %{
+                  acc
+                  | unquote(field_name) => [str | acc.unquote(field_name)]
+                })
               end
             end,
             quote do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {len, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
                 <<str::binary-size(^len), rest3::binary>> = rest2
-                unquote(loop_fn)(rest3, %{acc | unquote(field_name) => [str | acc.unquote(field_name)]})
+
+                unquote(loop_fn)(rest3, %{
+                  acc
+                  | unquote(field_name) => [str | acc.unquote(field_name)]
+                })
               end
             end
           ]
@@ -295,7 +342,11 @@ defmodule SimpleGrpc.Compiler do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {len, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
                 <<str::binary-size(^len), rest3::binary>> = rest2
-                unquote(loop_fn)(rest3, %{acc | unquote(field_name) => [str | acc.unquote(field_name)]})
+
+                unquote(loop_fn)(rest3, %{
+                  acc
+                  | unquote(field_name) => [str | acc.unquote(field_name)]
+                })
               end
             end
           ]
@@ -306,7 +357,11 @@ defmodule SimpleGrpc.Compiler do
         if is_single_byte_tag do
           [
             quote do
-              defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, 0::1, len::7, str::binary-size(len), rest::binary>>, acc) do
+              defp unquote(loop_fn)(
+                     <<unquote(tag_bytes)::binary, 0::1, len::7, str::binary-size(len),
+                       rest::binary>>,
+                     acc
+                   ) do
                 unquote(loop_fn)(rest, %{acc | unquote(field_name) => str})
               end
             end,
@@ -337,7 +392,11 @@ defmodule SimpleGrpc.Compiler do
             defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
               {len, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
               <<b::binary-size(^len), rest3::binary>> = rest2
-              unquote(loop_fn)(rest3, %{acc | unquote(field_name) => [b | acc.unquote(field_name)]})
+
+              unquote(loop_fn)(rest3, %{
+                acc
+                | unquote(field_name) => [b | acc.unquote(field_name)]
+              })
             end
           end
         ]
@@ -363,8 +422,17 @@ defmodule SimpleGrpc.Compiler do
             quote do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {val, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
-                atom = SimpleGrpc.Protobuf.resolve_enum_integer_to_atom(val, unquote(enum_desc_escaped))
-                unquote(loop_fn)(rest2, %{acc | unquote(field_name) => [atom | acc.unquote(field_name)]})
+
+                atom =
+                  SimpleGrpc.Protobuf.resolve_enum_integer_to_atom(
+                    val,
+                    unquote(enum_desc_escaped)
+                  )
+
+                unquote(loop_fn)(rest2, %{
+                  acc
+                  | unquote(field_name) => [atom | acc.unquote(field_name)]
+                })
               end
             end
           ]
@@ -373,7 +441,13 @@ defmodule SimpleGrpc.Compiler do
             quote do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {val, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
-                atom = SimpleGrpc.Protobuf.resolve_enum_integer_to_atom(val, unquote(enum_desc_escaped))
+
+                atom =
+                  SimpleGrpc.Protobuf.resolve_enum_integer_to_atom(
+                    val,
+                    unquote(enum_desc_escaped)
+                  )
+
                 unquote(loop_fn)(rest2, %{acc | unquote(field_name) => atom})
               end
             end
@@ -384,8 +458,14 @@ defmodule SimpleGrpc.Compiler do
       {1, "double", :repeated} ->
         [
           quote do
-            defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, val::float-little-size(64), rest::binary>>, acc) do
-              unquote(loop_fn)(rest, %{acc | unquote(field_name) => [val | acc.unquote(field_name)]})
+            defp unquote(loop_fn)(
+                   <<unquote(tag_bytes)::binary, val::float-little-size(64), rest::binary>>,
+                   acc
+                 ) do
+              unquote(loop_fn)(rest, %{
+                acc
+                | unquote(field_name) => [val | acc.unquote(field_name)]
+              })
             end
           end
         ]
@@ -393,7 +473,10 @@ defmodule SimpleGrpc.Compiler do
       {1, "double", _} ->
         [
           quote do
-            defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, val::float-little-size(64), rest::binary>>, acc) do
+            defp unquote(loop_fn)(
+                   <<unquote(tag_bytes)::binary, val::float-little-size(64), rest::binary>>,
+                   acc
+                 ) do
               unquote(loop_fn)(rest, %{acc | unquote(field_name) => val})
             end
           end
@@ -403,8 +486,14 @@ defmodule SimpleGrpc.Compiler do
       {5, "float", :repeated} ->
         [
           quote do
-            defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, val::float-little-size(32), rest::binary>>, acc) do
-              unquote(loop_fn)(rest, %{acc | unquote(field_name) => [val | acc.unquote(field_name)]})
+            defp unquote(loop_fn)(
+                   <<unquote(tag_bytes)::binary, val::float-little-size(32), rest::binary>>,
+                   acc
+                 ) do
+              unquote(loop_fn)(rest, %{
+                acc
+                | unquote(field_name) => [val | acc.unquote(field_name)]
+              })
             end
           end
         ]
@@ -412,7 +501,10 @@ defmodule SimpleGrpc.Compiler do
       {5, "float", _} ->
         [
           quote do
-            defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, val::float-little-size(32), rest::binary>>, acc) do
+            defp unquote(loop_fn)(
+                   <<unquote(tag_bytes)::binary, val::float-little-size(32), rest::binary>>,
+                   acc
+                 ) do
               unquote(loop_fn)(rest, %{acc | unquote(field_name) => val})
             end
           end
@@ -423,12 +515,18 @@ defmodule SimpleGrpc.Compiler do
         [
           quote do
             defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, 0, rest::binary>>, acc) do
-              unquote(loop_fn)(rest, %{acc | unquote(field_name) => [false | acc.unquote(field_name)]})
+              unquote(loop_fn)(rest, %{
+                acc
+                | unquote(field_name) => [false | acc.unquote(field_name)]
+              })
             end
           end,
           quote do
             defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, 1, rest::binary>>, acc) do
-              unquote(loop_fn)(rest, %{acc | unquote(field_name) => [true | acc.unquote(field_name)]})
+              unquote(loop_fn)(rest, %{
+                acc
+                | unquote(field_name) => [true | acc.unquote(field_name)]
+              })
             end
           end
         ]
@@ -452,19 +550,35 @@ defmodule SimpleGrpc.Compiler do
         if is_single_byte_tag do
           [
             quote do
-              defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, 0::1, val::7, rest::binary>>, acc) do
-                unquote(loop_fn)(rest, %{acc | unquote(field_name) => [val | acc.unquote(field_name)]})
+              defp unquote(loop_fn)(
+                     <<unquote(tag_bytes)::binary, 0::1, val::7, rest::binary>>,
+                     acc
+                   ) do
+                unquote(loop_fn)(rest, %{
+                  acc
+                  | unquote(field_name) => [val | acc.unquote(field_name)]
+                })
               end
             end,
             quote do
-              defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, 1::1, v1::7, 0::1, v2::7, rest::binary>>, acc) do
-                unquote(loop_fn)(rest, %{acc | unquote(field_name) => [(v1 ||| (v2 <<< 7)) | acc.unquote(field_name)]})
+              defp unquote(loop_fn)(
+                     <<unquote(tag_bytes)::binary, 1::1, v1::7, 0::1, v2::7, rest::binary>>,
+                     acc
+                   ) do
+                unquote(loop_fn)(rest, %{
+                  acc
+                  | unquote(field_name) => [v1 ||| v2 <<< 7 | acc.unquote(field_name)]
+                })
               end
             end,
             quote do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {val, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
-                unquote(loop_fn)(rest2, %{acc | unquote(field_name) => [val | acc.unquote(field_name)]})
+
+                unquote(loop_fn)(rest2, %{
+                  acc
+                  | unquote(field_name) => [val | acc.unquote(field_name)]
+                })
               end
             end
           ]
@@ -473,7 +587,11 @@ defmodule SimpleGrpc.Compiler do
             quote do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {val, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
-                unquote(loop_fn)(rest2, %{acc | unquote(field_name) => [val | acc.unquote(field_name)]})
+
+                unquote(loop_fn)(rest2, %{
+                  acc
+                  | unquote(field_name) => [val | acc.unquote(field_name)]
+                })
               end
             end
           ]
@@ -483,13 +601,19 @@ defmodule SimpleGrpc.Compiler do
         if is_single_byte_tag do
           [
             quote do
-              defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, 0::1, val::7, rest::binary>>, acc) do
+              defp unquote(loop_fn)(
+                     <<unquote(tag_bytes)::binary, 0::1, val::7, rest::binary>>,
+                     acc
+                   ) do
                 unquote(loop_fn)(rest, %{acc | unquote(field_name) => val})
               end
             end,
             quote do
-              defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, 1::1, v1::7, 0::1, v2::7, rest::binary>>, acc) do
-                unquote(loop_fn)(rest, %{acc | unquote(field_name) => v1 ||| (v2 <<< 7)})
+              defp unquote(loop_fn)(
+                     <<unquote(tag_bytes)::binary, 1::1, v1::7, 0::1, v2::7, rest::binary>>,
+                     acc
+                   ) do
+                unquote(loop_fn)(rest, %{acc | unquote(field_name) => v1 ||| v2 <<< 7})
               end
             end,
             quote do
@@ -549,13 +673,23 @@ defmodule SimpleGrpc.Compiler do
           %{unquote(name_atom) => list} when is_list(list) and list != [] ->
             Enum.map(list, fn item ->
               sub_bin = encode(unquote(sub_type), item)
-              [unquote(tag_bytes), SimpleGrpc.Protobuf.encode_varint(IO.iodata_length(sub_bin)), sub_bin]
+
+              [
+                unquote(tag_bytes),
+                SimpleGrpc.Protobuf.encode_varint(IO.iodata_length(sub_bin)),
+                sub_bin
+              ]
             end)
 
           %{unquote(name_str) => list} when is_list(list) and list != [] ->
             Enum.map(list, fn item ->
               sub_bin = encode(unquote(sub_type), item)
-              [unquote(tag_bytes), SimpleGrpc.Protobuf.encode_varint(IO.iodata_length(sub_bin)), sub_bin]
+
+              [
+                unquote(tag_bytes),
+                SimpleGrpc.Protobuf.encode_varint(IO.iodata_length(sub_bin)),
+                sub_bin
+              ]
             end)
 
           _ ->
@@ -600,7 +734,9 @@ defmodule SimpleGrpc.Compiler do
   defp generate_field_encode_expr(%Field{} = field, schema) do
     name_atom = field.name
     name_str = Atom.to_string(name_atom)
-    encode_expr = generate_single_field_encode_expr(field, quote(do: v), schema, field.prefix == :optional)
+
+    encode_expr =
+      generate_single_field_encode_expr(field, quote(do: v), schema, field.prefix == :optional)
 
     quote do
       case data do
@@ -611,7 +747,12 @@ defmodule SimpleGrpc.Compiler do
     end
   end
 
-  defp generate_single_field_encode_expr(%Field{type: "string", tag_bytes: tag_bytes}, val_ast, _schema, is_oneof) do
+  defp generate_single_field_encode_expr(
+         %Field{type: "string", tag_bytes: tag_bytes},
+         val_ast,
+         _schema,
+         is_oneof
+       ) do
     if is_oneof do
       quote do
         case unquote(val_ast) do
@@ -643,7 +784,12 @@ defmodule SimpleGrpc.Compiler do
     end
   end
 
-  defp generate_single_field_encode_expr(%Field{type: "double", tag_bytes: tag_bytes}, val_ast, _schema, is_oneof) do
+  defp generate_single_field_encode_expr(
+         %Field{type: "double", tag_bytes: tag_bytes},
+         val_ast,
+         _schema,
+         is_oneof
+       ) do
     if is_oneof do
       quote do
         case unquote(val_ast) do
@@ -667,7 +813,12 @@ defmodule SimpleGrpc.Compiler do
     end
   end
 
-  defp generate_single_field_encode_expr(%Field{type: "float", tag_bytes: tag_bytes}, val_ast, _schema, is_oneof) do
+  defp generate_single_field_encode_expr(
+         %Field{type: "float", tag_bytes: tag_bytes},
+         val_ast,
+         _schema,
+         is_oneof
+       ) do
     if is_oneof do
       quote do
         case unquote(val_ast) do
@@ -691,7 +842,12 @@ defmodule SimpleGrpc.Compiler do
     end
   end
 
-  defp generate_single_field_encode_expr(%Field{type: "bool", tag_bytes: tag_bytes}, val_ast, _schema, is_oneof) do
+  defp generate_single_field_encode_expr(
+         %Field{type: "bool", tag_bytes: tag_bytes},
+         val_ast,
+         _schema,
+         is_oneof
+       ) do
     if is_oneof do
       quote do
         case unquote(val_ast) do
@@ -709,7 +865,12 @@ defmodule SimpleGrpc.Compiler do
     end
   end
 
-  defp generate_single_field_encode_expr(%Field{submessage_desc: %Message{}} = field, val_ast, _schema, _is_oneof) do
+  defp generate_single_field_encode_expr(
+         %Field{submessage_desc: %Message{}} = field,
+         val_ast,
+         _schema,
+         _is_oneof
+       ) do
     sub_type = field.type
     tag_bytes = field.tag_bytes
 
@@ -717,7 +878,12 @@ defmodule SimpleGrpc.Compiler do
       case unquote(val_ast) do
         v when is_map(v) and map_size(v) > 0 ->
           sub_bin = encode(unquote(sub_type), v)
-          [unquote(tag_bytes), SimpleGrpc.Protobuf.encode_varint(IO.iodata_length(sub_bin)), sub_bin]
+
+          [
+            unquote(tag_bytes),
+            SimpleGrpc.Protobuf.encode_varint(IO.iodata_length(sub_bin)),
+            sub_bin
+          ]
 
         _ ->
           []
@@ -725,20 +891,31 @@ defmodule SimpleGrpc.Compiler do
     end
   end
 
-  defp generate_single_field_encode_expr(%Field{enum_desc: %SchemaEnum{} = enum_desc} = field, val_ast, _schema, is_oneof) do
+  defp generate_single_field_encode_expr(
+         %Field{enum_desc: %SchemaEnum{} = enum_desc} = field,
+         val_ast,
+         _schema,
+         is_oneof
+       ) do
     tag_bytes = field.tag_bytes
     enum_desc_escaped = Macro.escape(enum_desc)
 
     if is_oneof do
       quote do
-        int_val = SimpleGrpc.Protobuf.resolve_enum_value_to_integer(unquote(val_ast), unquote(enum_desc_escaped))
+        int_val =
+          SimpleGrpc.Protobuf.resolve_enum_value_to_integer(
+            unquote(val_ast),
+            unquote(enum_desc_escaped)
+          )
+
         [unquote(tag_bytes), SimpleGrpc.Protobuf.encode_varint(int_val)]
       end
     else
       quote do
         case unquote(val_ast) do
           v ->
-            int_val = SimpleGrpc.Protobuf.resolve_enum_value_to_integer(v, unquote(enum_desc_escaped))
+            int_val =
+              SimpleGrpc.Protobuf.resolve_enum_value_to_integer(v, unquote(enum_desc_escaped))
 
             if int_val != 0 do
               [unquote(tag_bytes), SimpleGrpc.Protobuf.encode_varint(int_val)]
@@ -750,7 +927,12 @@ defmodule SimpleGrpc.Compiler do
     end
   end
 
-  defp generate_single_field_encode_expr(%Field{tag_bytes: tag_bytes, type: t}, val_ast, _schema, is_oneof)
+  defp generate_single_field_encode_expr(
+         %Field{tag_bytes: tag_bytes, type: t},
+         val_ast,
+         _schema,
+         is_oneof
+       )
        when t in ["int32", "int64", "uint32", "uint64"] do
     if is_oneof do
       quote do
@@ -777,7 +959,15 @@ defmodule SimpleGrpc.Compiler do
 
   defp generate_single_field_encode_expr(field, val_ast, _schema, _is_oneof) do
     quote do
-      SimpleGrpc.Protobuf.encode_single_field(unquote(field.number), unquote(Macro.escape(field.type)), unquote(val_ast), nil, nil, unquote(field.tag_bytes), unquote(field.wire_type))
+      SimpleGrpc.Protobuf.encode_single_field(
+        unquote(field.number),
+        unquote(Macro.escape(field.type)),
+        unquote(val_ast),
+        nil,
+        nil,
+        unquote(field.tag_bytes),
+        unquote(field.wire_type)
+      )
     end
   end
 

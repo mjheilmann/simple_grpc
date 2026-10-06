@@ -444,8 +444,12 @@ defmodule SimpleGrpc.ServerTest do
     assert Map.has_key?(plug_state.routes, "/custom_prefix.PrefixService/Echo")
 
     # Send in-memory request through Plug
-    {:ok, conn} = SimpleGrpc.Client.connect({SimpleGrpc.Plug, server: SampleEchoServer}, adapter: :plug)
-    {:ok, schema} = SimpleGrpc.Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+    {:ok, conn} =
+      SimpleGrpc.Client.connect({SimpleGrpc.Plug, server: SampleEchoServer}, adapter: :plug)
+
+    {:ok, schema} =
+      SimpleGrpc.Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+
     req_bytes = SimpleGrpc.Protobuf.encode!("EchoRequest", %{message: "ServerOptTest"}, schema)
 
     {:ok, resp_bytes, _headers, _trailers} =

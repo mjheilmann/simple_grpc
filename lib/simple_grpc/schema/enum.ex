@@ -42,6 +42,7 @@ defmodule SimpleGrpc.Schema.Enum do
     int_to_atom =
       Enum.reduce(fields, %{}, fn {atom_name, int_val}, acc ->
         signed_32 = if int_val > 0x7FFFFFFF, do: int_val - 0x100000000, else: int_val
+
         acc
         |> Map.put_new(int_val, atom_name)
         |> Map.put_new(signed_32, atom_name)

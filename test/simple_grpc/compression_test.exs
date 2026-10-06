@@ -41,7 +41,9 @@ defmodule SimpleGrpc.CompressionTest do
   end
 
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: {SimpleGrpc.Plug, services: [CompressionServer]}, port: 0)
+    {:ok, sup_pid} =
+      Bandit.start_link(plug: {SimpleGrpc.Plug, services: [CompressionServer]}, port: 0)
+
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
@@ -122,7 +124,8 @@ defmodule SimpleGrpc.CompressionTest do
 
   describe "In-Memory Plug Transport with Compression" do
     test "sends compressed unary request via Plug adapter" do
-      {:ok, conn} = Client.connect({SimpleGrpc.Plug, services: [CompressionServer]}, adapter: :plug)
+      {:ok, conn} =
+        Client.connect({SimpleGrpc.Plug, services: [CompressionServer]}, adapter: :plug)
 
       assert {:ok, resp} =
                TypedStreamingClient.unary_call(
@@ -137,7 +140,8 @@ defmodule SimpleGrpc.CompressionTest do
     end
 
     test "rejects request with unsupported grpc-encoding header" do
-      {:ok, conn} = Client.connect({SimpleGrpc.Plug, services: [CompressionServer]}, adapter: :plug)
+      {:ok, conn} =
+        Client.connect({SimpleGrpc.Plug, services: [CompressionServer]}, adapter: :plug)
 
       assert {:error, 12, msg} =
                TypedStreamingClient.unary_call(

@@ -154,7 +154,8 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "loads from directory and prunes schema to only the needful service and its dependencies" do
-      {:ok, schema} = Schema.from_directory("priv/protos/imports_test", service: "ImportTestService")
+      {:ok, schema} =
+        Schema.from_directory("priv/protos/imports_test", service: "ImportTestService")
 
       # Retains only the target service
       assert Map.has_key?(schema.services, "ImportTestService")

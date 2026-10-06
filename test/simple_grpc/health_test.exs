@@ -33,7 +33,8 @@ defmodule SimpleGrpc.HealthTest do
     test "sets and gets service statuses" do
       Health.set_status("service.A", :SERVING)
       Health.set_status("service.B", :NOT_SERVING)
-      Health.set_status("service.C", 3) # :SERVICE_UNKNOWN
+      # :SERVICE_UNKNOWN
+      Health.set_status("service.C", 3)
 
       assert Health.get_status("service.A") == :SERVING
       assert Health.get_status("service.B") == :NOT_SERVING

@@ -8,11 +8,11 @@ defmodule SimpleGrpc.Client.DSL do
   alias SimpleGrpc.Server.Message
 
   def generate(opts, caller_module) do
-
     file_or_schema =
       opts[:client_file] || opts[:server_file] || opts[:proto] || opts[:file] ||
         opts[:schema] ||
-        raise ArgumentError, "Must specify :client_file or :schema option for use SimpleGrpc.Client"
+        raise ArgumentError,
+              "Must specify :client_file or :schema option for use SimpleGrpc.Client"
 
     target_service = opts[:service]
 
@@ -73,7 +73,8 @@ defmodule SimpleGrpc.Client.DSL do
           end)
 
         if is_nil(service_ast) do
-          raise ArgumentError, "Service #{inspect(service_name)} not found in #{inspect(file_or_schema)}"
+          raise ArgumentError,
+                "Service #{inspect(service_name)} not found in #{inspect(file_or_schema)}"
         end
 
         service_ast
@@ -83,7 +84,9 @@ defmodule SimpleGrpc.Client.DSL do
         end)
         |> Enum.map(&RPC.parse/1)
       else
-        service_def = Map.get(schema.services, service_name) || Map.get(schema.services, service_prefix)
+        service_def =
+          Map.get(schema.services, service_name) || Map.get(schema.services, service_prefix)
+
         if is_nil(service_def) do
           raise ArgumentError, "Service #{inspect(service_name)} not found in schema"
         end
@@ -473,7 +476,8 @@ defmodule SimpleGrpc.Client.DSL do
                 is_binary(resp_stream) ->
                   resp_stream
 
-                is_function(resp_stream, 2) or is_struct(resp_stream, Stream) or is_list(resp_stream) ->
+                is_function(resp_stream, 2) or is_struct(resp_stream, Stream) or
+                    is_list(resp_stream) ->
                   Enum.at(resp_stream, 0) || <<>>
 
                 true ->

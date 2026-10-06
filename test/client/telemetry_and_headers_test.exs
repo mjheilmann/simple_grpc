@@ -32,7 +32,8 @@ defmodule SimpleGrpc.Client.TelemetryAndHeadersTest do
         _ ->
           {:ok,
            %{
-             result: "Echo: #{req.message} | Auth: #{auth} | Trace: #{trace} | Timeout: #{timeout}",
+             result:
+               "Echo: #{req.message} | Auth: #{auth} | Trace: #{trace} | Timeout: #{timeout}",
              sequence: req.sequence,
              is_final: true
            }}
@@ -106,8 +107,19 @@ defmodule SimpleGrpc.Client.TelemetryAndHeadersTest do
   describe "Client Telemetry Events" do
     test "emits [:simple_grpc, :client, :start] and [:simple_grpc, :client, :stop] on successful Unary RPC",
          %{test_pid: test_pid} do
-      :telemetry.attach("test-client-start", [:simple_grpc, :client, :start], &__MODULE__.handle_telemetry/4, test_pid)
-      :telemetry.attach("test-client-stop", [:simple_grpc, :client, :stop], &__MODULE__.handle_telemetry/4, test_pid)
+      :telemetry.attach(
+        "test-client-start",
+        [:simple_grpc, :client, :start],
+        &__MODULE__.handle_telemetry/4,
+        test_pid
+      )
+
+      :telemetry.attach(
+        "test-client-stop",
+        [:simple_grpc, :client, :stop],
+        &__MODULE__.handle_telemetry/4,
+        test_pid
+      )
 
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
@@ -138,7 +150,12 @@ defmodule SimpleGrpc.Client.TelemetryAndHeadersTest do
     test "emits [:simple_grpc, :client, :stop] with error code on gRPC error response", %{
       test_pid: test_pid
     } do
-      :telemetry.attach("test-client-stop", [:simple_grpc, :client, :stop], &__MODULE__.handle_telemetry/4, test_pid)
+      :telemetry.attach(
+        "test-client-stop",
+        [:simple_grpc, :client, :stop],
+        &__MODULE__.handle_telemetry/4,
+        test_pid
+      )
 
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
@@ -153,10 +170,25 @@ defmodule SimpleGrpc.Client.TelemetryAndHeadersTest do
     end
 
     test "emits telemetry on dynamic SimpleGrpc.Client.call", %{test_pid: test_pid} do
-      :telemetry.attach("test-client-start", [:simple_grpc, :client, :start], &__MODULE__.handle_telemetry/4, test_pid)
-      :telemetry.attach("test-client-stop", [:simple_grpc, :client, :stop], &__MODULE__.handle_telemetry/4, test_pid)
+      :telemetry.attach(
+        "test-client-start",
+        [:simple_grpc, :client, :start],
+        &__MODULE__.handle_telemetry/4,
+        test_pid
+      )
 
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, schema: HeaderClient.__schema__())
+      :telemetry.attach(
+        "test-client-stop",
+        [:simple_grpc, :client, :stop],
+        &__MODULE__.handle_telemetry/4,
+        test_pid
+      )
+
+      {:ok, conn} =
+        SimpleGrpc.Client.connect(SimpleGrpc.Plug,
+          adapter: :plug,
+          schema: HeaderClient.__schema__()
+        )
 
       assert {:ok, resp} =
                SimpleGrpc.Client.call(
@@ -176,15 +208,29 @@ defmodule SimpleGrpc.Client.TelemetryAndHeadersTest do
       assert meta2.response.result =~ "Echo: DynamicTel"
     end
 
-    test "emits [:simple_grpc, :client, :start] and [:simple_grpc, :client, :stop] on Streaming RPCs", %{
-      test_pid: test_pid
-    } do
-      :telemetry.attach("test-client-start", [:simple_grpc, :client, :start], &__MODULE__.handle_telemetry/4, test_pid)
-      :telemetry.attach("test-client-stop", [:simple_grpc, :client, :stop], &__MODULE__.handle_telemetry/4, test_pid)
+    test "emits [:simple_grpc, :client, :start] and [:simple_grpc, :client, :stop] on Streaming RPCs",
+         %{
+           test_pid: test_pid
+         } do
+      :telemetry.attach(
+        "test-client-start",
+        [:simple_grpc, :client, :start],
+        &__MODULE__.handle_telemetry/4,
+        test_pid
+      )
+
+      :telemetry.attach(
+        "test-client-stop",
+        [:simple_grpc, :client, :stop],
+        &__MODULE__.handle_telemetry/4,
+        test_pid
+      )
 
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
-      assert {:ok, stream} = HeaderClient.server_streaming_call(conn, %{message: "StreamTel", sequence: 1})
+      assert {:ok, stream} =
+               HeaderClient.server_streaming_call(conn, %{message: "StreamTel", sequence: 1})
+
       items = Enum.to_list(stream)
       assert length(items) == 2
 
@@ -199,7 +245,12 @@ defmodule SimpleGrpc.Client.TelemetryAndHeadersTest do
     test "emits [:simple_grpc, :client, :exception] when an unhandled exception occurs", %{
       test_pid: test_pid
     } do
-      :telemetry.attach("test-client-exception", [:simple_grpc, :client, :exception], &__MODULE__.handle_telemetry/4, test_pid)
+      :telemetry.attach(
+        "test-client-exception",
+        [:simple_grpc, :client, :exception],
+        &__MODULE__.handle_telemetry/4,
+        test_pid
+      )
 
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
@@ -233,7 +284,9 @@ defmodule SimpleGrpc.Client.TelemetryAndHeadersTest do
           headers: [authorization: "Bearer default-token", x_trace_id: "conn-trace-123"]
         )
 
-      assert {:ok, resp} = HeaderClient.unary_call(conn, %{message: "DefaultHeaders", sequence: 1})
+      assert {:ok, resp} =
+               HeaderClient.unary_call(conn, %{message: "DefaultHeaders", sequence: 1})
+
       assert resp.result =~ "Auth: Bearer default-token"
       assert resp.result =~ "Trace: conn-trace-123"
     end

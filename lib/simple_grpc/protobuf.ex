@@ -38,6 +38,7 @@ defmodule SimpleGrpc.Protobuf do
         case mod.encode(msg_name, data) do
           :error ->
             msg_desc = resolve_message_descriptor(message_or_mod, schema_ctx)
+
             encode_fields(msg_desc.fields, data, schema_ctx, msg_desc)
             |> IO.iodata_to_binary()
 
@@ -47,6 +48,7 @@ defmodule SimpleGrpc.Protobuf do
 
       _ ->
         msg_desc = resolve_message_descriptor(message_or_mod, schema_ctx)
+
         encode_fields(msg_desc.fields, data, schema_ctx, msg_desc)
         |> IO.iodata_to_binary()
     end
@@ -89,7 +91,11 @@ defmodule SimpleGrpc.Protobuf do
     decode_fallback(message_or_mod, binary, schema_ctx)
   end
 
-  defp decode_with_descriptor(%Message{default_map: def_map, repeated_fields: rep_fields} = msg_desc, binary, schema_ctx) do
+  defp decode_with_descriptor(
+         %Message{default_map: def_map, repeated_fields: rep_fields} = msg_desc,
+         binary,
+         schema_ctx
+       ) do
     schema_ctx = extract_schema_ctx(schema_ctx, msg_desc)
     raw_map = decode_wire_fields(binary, msg_desc, schema_ctx, %{})
 
@@ -184,27 +190,40 @@ defmodule SimpleGrpc.Protobuf do
 
   defp get_field_val(data, atom_name) do
     case data do
-      %{^atom_name => v} -> v
+      %{^atom_name => v} ->
+        v
+
       %{} ->
         str_name = Atom.to_string(atom_name)
+
         case data do
           %{^str_name => v} -> v
           _ -> nil
         end
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
 
-  defp is_field_default?(%Field{enum_desc: %Schema.Enum{zero_atom: zero_atom, str_to_int: s2i, atom_to_int: a2i}}, val, _schema_ctx, _msg_desc) do
-    val == zero_atom or val == 0 or val == "0" or (zero_atom != nil and val == Atom.to_string(zero_atom)) or
+  defp is_field_default?(
+         %Field{enum_desc: %Schema.Enum{zero_atom: zero_atom, str_to_int: s2i, atom_to_int: a2i}},
+         val,
+         _schema_ctx,
+         _msg_desc
+       ) do
+    val == zero_atom or val == 0 or val == "0" or
+      (zero_atom != nil and val == Atom.to_string(zero_atom)) or
       Map.get(s2i, val) == 0 or (is_atom(val) and Map.get(a2i, val) == 0)
   end
 
-  defp is_field_default?(%Field{default_value: def_val}, val, _schema_ctx, _msg_desc) when def_val != nil and not is_binary(val) and not is_atom(val) do
+  defp is_field_default?(%Field{default_value: def_val}, val, _schema_ctx, _msg_desc)
+       when def_val != nil and not is_binary(val) and not is_atom(val) do
     val == def_val or (is_number(def_val) and is_number(val) and val == 0)
   end
 
-  defp is_field_default?(%Field{default_value: def_val, type: type}, val, _schema_ctx, _msg_desc) when def_val != nil and type in ["string", "bytes"] do
+  defp is_field_default?(%Field{default_value: def_val, type: type}, val, _schema_ctx, _msg_desc)
+       when def_val != nil and type in ["string", "bytes"] do
     val == def_val
   end
 
@@ -212,70 +231,172 @@ defmodule SimpleGrpc.Protobuf do
     is_default_value?(val, field.type, schema_ctx, msg_desc)
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "string", number: num}, val, _schema_ctx, _msg_desc) when is_binary(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "string", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_binary(val) do
     [tag || encode_tag(num, 2), encode_varint(byte_size(val)), val]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "string", number: num}, val, _schema_ctx, _msg_desc) when is_atom(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "string", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_atom(val) do
     str = Atom.to_string(val)
     [tag || encode_tag(num, 2), encode_varint(byte_size(str)), str]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "bytes", number: num}, val, _schema_ctx, _msg_desc) when is_binary(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "bytes", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_binary(val) do
     [tag || encode_tag(num, 2), encode_varint(byte_size(val)), val]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, submessage_desc: %Message{} = sub_desc, number: num}, val, schema_ctx, _msg_desc) when is_map(val) or is_list(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, submessage_desc: %Message{} = sub_desc, number: num},
+         val,
+         schema_ctx,
+         _msg_desc
+       )
+       when is_map(val) or is_list(val) do
     payload = encode_fields(sub_desc.fields, val, schema_ctx, sub_desc)
     [tag || encode_tag(num, 2), encode_varint(IO.iodata_length(payload)), payload]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, enum_desc: %Schema.Enum{} = enum_desc, number: num}, val, _schema_ctx, _msg_desc) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, enum_desc: %Schema.Enum{} = enum_desc, number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       ) do
     int_val = resolve_enum_value_to_integer(val, enum_desc)
     [tag || encode_tag(num, 0), encode_varint(int_val)]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "double", number: num}, val, _schema_ctx, _msg_desc) when is_number(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "double", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_number(val) do
     [tag || encode_tag(num, 1), <<val * 1.0::float-little-size(64)>>]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "float", number: num}, val, _schema_ctx, _msg_desc) when is_number(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "float", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_number(val) do
     [tag || encode_tag(num, 5), <<val * 1.0::float-little-size(32)>>]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "bool", number: num}, true, _schema_ctx, _msg_desc), do: [tag || encode_tag(num, 0), <<1>>]
-  defp encode_field_value(%Field{tag_bytes: tag, type: "bool", number: num}, false, _schema_ctx, _msg_desc), do: [tag || encode_tag(num, 0), <<0>>]
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "bool", number: num},
+         true,
+         _schema_ctx,
+         _msg_desc
+       ), do: [tag || encode_tag(num, 0), <<1>>]
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "sint32", number: num}, val, _schema_ctx, _msg_desc) when is_integer(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "bool", number: num},
+         false,
+         _schema_ctx,
+         _msg_desc
+       ), do: [tag || encode_tag(num, 0), <<0>>]
+
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "sint32", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_integer(val) do
     [tag || encode_tag(num, 0), encode_varint(encode_zigzag32(val))]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "sint64", number: num}, val, _schema_ctx, _msg_desc) when is_integer(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "sint64", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_integer(val) do
     [tag || encode_tag(num, 0), encode_varint(encode_zigzag64(val))]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: t, number: num}, val, _schema_ctx, _msg_desc) when is_integer(val) and t in ["int32", "int64", "uint32", "uint64"] do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: t, number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_integer(val) and t in ["int32", "int64", "uint32", "uint64"] do
     [tag || encode_tag(num, 0), encode_varint(val)]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "fixed64", number: num}, val, _schema_ctx, _msg_desc) when is_integer(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "fixed64", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_integer(val) do
     [tag || encode_tag(num, 1), <<val::little-unsigned-size(64)>>]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "sfixed64", number: num}, val, _schema_ctx, _msg_desc) when is_integer(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "sfixed64", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_integer(val) do
     [tag || encode_tag(num, 1), <<val::little-signed-size(64)>>]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "fixed32", number: num}, val, _schema_ctx, _msg_desc) when is_integer(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "fixed32", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_integer(val) do
     [tag || encode_tag(num, 5), <<val::little-unsigned-size(32)>>]
   end
 
-  defp encode_field_value(%Field{tag_bytes: tag, type: "sfixed32", number: num}, val, _schema_ctx, _msg_desc) when is_integer(val) do
+  defp encode_field_value(
+         %Field{tag_bytes: tag, type: "sfixed32", number: num},
+         val,
+         _schema_ctx,
+         _msg_desc
+       )
+       when is_integer(val) do
     [tag || encode_tag(num, 5), <<val::little-signed-size(32)>>]
   end
 
   defp encode_field_value(%Field{} = field, val, schema_ctx, msg_desc) do
-    encode_single_field(field.number, field.type, val, schema_ctx, msg_desc, field.tag_bytes, field.wire_type)
+    encode_single_field(
+      field.number,
+      field.type,
+      val,
+      schema_ctx,
+      msg_desc,
+      field.tag_bytes,
+      field.wire_type
+    )
   end
 
   defp encode_oneof(%Field{fields: oneof_fields}, data, schema_ctx, msg_desc) do
@@ -292,7 +413,8 @@ defmodule SimpleGrpc.Protobuf do
   def encode_repeated(_field, nil, _schema_ctx, _msg_desc), do: <<>>
   def encode_repeated(_field, [], _schema_ctx, _msg_desc), do: <<>>
 
-  def encode_repeated(%Field{is_packable: true} = field, list, schema_ctx, msg_desc) when is_list(list) do
+  def encode_repeated(%Field{is_packable: true} = field, list, schema_ctx, msg_desc)
+      when is_list(list) do
     packed_bytes =
       Enum.map(list, fn item ->
         encode_raw_value(field.type, item, schema_ctx, msg_desc)
@@ -302,14 +424,18 @@ defmodule SimpleGrpc.Protobuf do
     [tag, encode_varint(IO.iodata_length(packed_bytes)), packed_bytes]
   end
 
-  def encode_repeated(%Field{is_packable: false} = field, list, schema_ctx, msg_desc) when is_list(list) do
+  def encode_repeated(%Field{is_packable: false} = field, list, schema_ctx, msg_desc)
+      when is_list(list) do
     Enum.map(list, fn item ->
       encode_field_value(field, item, schema_ctx, msg_desc)
     end)
   end
 
   def encode_repeated(field, list, schema_ctx, msg_desc) when is_list(list) do
-    is_packable = if is_boolean(field.is_packable), do: field.is_packable, else: is_packable_type?(field.type, schema_ctx, msg_desc)
+    is_packable =
+      if is_boolean(field.is_packable),
+        do: field.is_packable,
+        else: is_packable_type?(field.type, schema_ctx, msg_desc)
 
     if is_packable do
       packed_bytes =
@@ -337,7 +463,15 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   @doc false
-  def encode_single_field(field_num, type, value, schema_ctx, msg_desc, tag_bytes \\ nil, wire_type \\ nil) do
+  def encode_single_field(
+        field_num,
+        type,
+        value,
+        schema_ctx,
+        msg_desc,
+        tag_bytes \\ nil,
+        wire_type \\ nil
+      ) do
     wire_type = wire_type || wire_type_for(type, schema_ctx, msg_desc)
     tag = tag_bytes || encode_tag(field_num, wire_type)
 
@@ -420,7 +554,12 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   @doc false
-  def resolve_enum_value_to_integer(val, %Schema.Enum{atom_to_int: a2i, str_to_int: s2i, fields: fields, name: name}) do
+  def resolve_enum_value_to_integer(val, %Schema.Enum{
+        atom_to_int: a2i,
+        str_to_int: s2i,
+        fields: fields,
+        name: name
+      }) do
     cond do
       is_integer(val) ->
         val
@@ -429,14 +568,18 @@ defmodule SimpleGrpc.Protobuf do
         case Map.get(a2i, val) do
           nil ->
             val_str = Atom.to_string(val)
+
             case Map.get(s2i, val_str) || Map.get(s2i, String.upcase(val_str)) do
               nil ->
                 case Enum.find(fields, fn {k, _v} ->
                        k == val or Atom.to_string(k) == val_str or
                          String.upcase(Atom.to_string(k)) == String.upcase(val_str)
                      end) do
-                  {_, int_val} -> int_val
-                  nil -> throw({:error, "Unknown enum atom #{inspect(val)} for enum #{inspect(name)}"})
+                  {_, int_val} ->
+                    int_val
+
+                  nil ->
+                    throw({:error, "Unknown enum atom #{inspect(val)} for enum #{inspect(name)}"})
                 end
 
               int_val ->
@@ -456,10 +599,16 @@ defmodule SimpleGrpc.Protobuf do
 
               _ ->
                 case Enum.find(fields, fn {k, _v} ->
-                       Atom.to_string(k) == val or String.upcase(Atom.to_string(k)) == String.upcase(val)
+                       Atom.to_string(k) == val or
+                         String.upcase(Atom.to_string(k)) == String.upcase(val)
                      end) do
-                  {_, int_val} -> int_val
-                  nil -> throw({:error, "Unknown enum string #{inspect(val)} for enum #{inspect(name)}"})
+                  {_, int_val} ->
+                    int_val
+
+                  nil ->
+                    throw(
+                      {:error, "Unknown enum string #{inspect(val)} for enum #{inspect(name)}"}
+                    )
                 end
             end
 
@@ -474,7 +623,7 @@ defmodule SimpleGrpc.Protobuf do
 
   @doc false
   def resolve_enum_integer_to_atom(int_val, %Schema.Enum{int_to_atom: i2a, fields: fields})
-       when is_integer(int_val) do
+      when is_integer(int_val) do
     signed_32 =
       cond do
         int_val >= 0x8000000000000000 -> int_val - 0x10000000000000000
@@ -558,7 +707,13 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   # Repeated Submessage (Hot Path)
-  defp decode_field_value(binary, 2, %Field{prefix: :repeated, submessage_desc: %Message{} = sub_desc}, schema_ctx, _msg_desc) do
+  defp decode_field_value(
+         binary,
+         2,
+         %Field{prefix: :repeated, submessage_desc: %Message{} = sub_desc},
+         schema_ctx,
+         _msg_desc
+       ) do
     {len, rest} = decode_varint(binary)
     <<sub_bytes::binary-size(^len), remaining::binary>> = rest
     sub_decoded = decode!(sub_desc, sub_bytes, schema_ctx)
@@ -566,7 +721,13 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   # Non-repeated Submessage (Hot Path)
-  defp decode_field_value(binary, 2, %Field{submessage_desc: %Message{} = sub_desc}, schema_ctx, _msg_desc) do
+  defp decode_field_value(
+         binary,
+         2,
+         %Field{submessage_desc: %Message{} = sub_desc},
+         schema_ctx,
+         _msg_desc
+       ) do
     {len, rest} = decode_varint(binary)
     <<sub_bytes::binary-size(^len), remaining::binary>> = rest
     sub_decoded = decode!(sub_desc, sub_bytes, schema_ctx)
@@ -574,7 +735,13 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   # Repeated String
-  defp decode_field_value(binary, 2, %Field{prefix: :repeated, type: "string"}, _schema_ctx, _msg_desc) do
+  defp decode_field_value(
+         binary,
+         2,
+         %Field{prefix: :repeated, type: "string"},
+         _schema_ctx,
+         _msg_desc
+       ) do
     {len, rest} = decode_varint(binary)
     <<str::binary-size(^len), remaining::binary>> = rest
     {[str], remaining}
@@ -588,7 +755,13 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   # Repeated Bytes
-  defp decode_field_value(binary, 2, %Field{prefix: :repeated, type: "bytes"}, _schema_ctx, _msg_desc) do
+  defp decode_field_value(
+         binary,
+         2,
+         %Field{prefix: :repeated, type: "bytes"},
+         _schema_ctx,
+         _msg_desc
+       ) do
     {len, rest} = decode_varint(binary)
     <<b::binary-size(^len), remaining::binary>> = rest
     {[b], remaining}
@@ -602,20 +775,38 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   # Enum field (wire type 0)
-  defp decode_field_value(binary, 0, %Field{enum_desc: %Schema.Enum{} = enum_desc, prefix: :repeated}, _schema_ctx, _msg_desc) do
+  defp decode_field_value(
+         binary,
+         0,
+         %Field{enum_desc: %Schema.Enum{} = enum_desc, prefix: :repeated},
+         _schema_ctx,
+         _msg_desc
+       ) do
     {int_val, rest} = decode_varint(binary)
     atom_val = resolve_enum_integer_to_atom(int_val, enum_desc)
     {[atom_val], rest}
   end
 
-  defp decode_field_value(binary, 0, %Field{enum_desc: %Schema.Enum{} = enum_desc}, _schema_ctx, _msg_desc) do
+  defp decode_field_value(
+         binary,
+         0,
+         %Field{enum_desc: %Schema.Enum{} = enum_desc},
+         _schema_ctx,
+         _msg_desc
+       ) do
     {int_val, rest} = decode_varint(binary)
     atom_val = resolve_enum_integer_to_atom(int_val, enum_desc)
     {atom_val, rest}
   end
 
   # Packed repeated field (wire type 2)
-  defp decode_field_value(binary, 2, %Field{prefix: :repeated, is_packable: true} = field, schema_ctx, msg_desc) do
+  defp decode_field_value(
+         binary,
+         2,
+         %Field{prefix: :repeated, is_packable: true} = field,
+         schema_ctx,
+         msg_desc
+       ) do
     {len, rest} = decode_varint(binary)
     <<packed_bytes::binary-size(^len), remaining::binary>> = rest
     items = decode_packed_values(packed_bytes, field.type, schema_ctx, msg_desc)
@@ -623,42 +814,104 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   # Double
-  defp decode_field_value(<<val::float-little-size(64), rest::binary>>, 1, %Field{type: "double", prefix: :repeated}, _schema_ctx, _msg_desc) do
+  defp decode_field_value(
+         <<val::float-little-size(64), rest::binary>>,
+         1,
+         %Field{type: "double", prefix: :repeated},
+         _schema_ctx,
+         _msg_desc
+       ) do
     {[val], rest}
   end
-  defp decode_field_value(<<val::float-little-size(64), rest::binary>>, 1, %Field{type: "double"}, _schema_ctx, _msg_desc) do
+
+  defp decode_field_value(
+         <<val::float-little-size(64), rest::binary>>,
+         1,
+         %Field{type: "double"},
+         _schema_ctx,
+         _msg_desc
+       ) do
     {val, rest}
   end
 
   # Float
-  defp decode_field_value(<<val::float-little-size(32), rest::binary>>, 5, %Field{type: "float", prefix: :repeated}, _schema_ctx, _msg_desc) do
+  defp decode_field_value(
+         <<val::float-little-size(32), rest::binary>>,
+         5,
+         %Field{type: "float", prefix: :repeated},
+         _schema_ctx,
+         _msg_desc
+       ) do
     {[val], rest}
   end
-  defp decode_field_value(<<val::float-little-size(32), rest::binary>>, 5, %Field{type: "float"}, _schema_ctx, _msg_desc) do
+
+  defp decode_field_value(
+         <<val::float-little-size(32), rest::binary>>,
+         5,
+         %Field{type: "float"},
+         _schema_ctx,
+         _msg_desc
+       ) do
     {val, rest}
   end
 
   # Fixed64 / SFixed64
-  defp decode_field_value(<<val::little-unsigned-size(64), rest::binary>>, 1, %Field{type: "fixed64"}, _schema_ctx, _msg_desc), do: {val, rest}
-  defp decode_field_value(<<val::little-signed-size(64), rest::binary>>, 1, %Field{type: "sfixed64"}, _schema_ctx, _msg_desc), do: {val, rest}
+  defp decode_field_value(
+         <<val::little-unsigned-size(64), rest::binary>>,
+         1,
+         %Field{type: "fixed64"},
+         _schema_ctx,
+         _msg_desc
+       ), do: {val, rest}
+
+  defp decode_field_value(
+         <<val::little-signed-size(64), rest::binary>>,
+         1,
+         %Field{type: "sfixed64"},
+         _schema_ctx,
+         _msg_desc
+       ), do: {val, rest}
 
   # Fixed32 / SFixed32
-  defp decode_field_value(<<val::little-unsigned-size(32), rest::binary>>, 5, %Field{type: "fixed32"}, _schema_ctx, _msg_desc), do: {val, rest}
-  defp decode_field_value(<<val::little-signed-size(32), rest::binary>>, 5, %Field{type: "sfixed32"}, _schema_ctx, _msg_desc), do: {val, rest}
+  defp decode_field_value(
+         <<val::little-unsigned-size(32), rest::binary>>,
+         5,
+         %Field{type: "fixed32"},
+         _schema_ctx,
+         _msg_desc
+       ), do: {val, rest}
+
+  defp decode_field_value(
+         <<val::little-signed-size(32), rest::binary>>,
+         5,
+         %Field{type: "sfixed32"},
+         _schema_ctx,
+         _msg_desc
+       ), do: {val, rest}
 
   # Varint integers & bools
-  defp decode_field_value(binary, 0, %Field{type: t, prefix: :repeated}, _schema_ctx, _msg_desc) when t in ["int32", "int64", "uint32", "uint64"] do
+  defp decode_field_value(binary, 0, %Field{type: t, prefix: :repeated}, _schema_ctx, _msg_desc)
+       when t in ["int32", "int64", "uint32", "uint64"] do
     {val, rest} = decode_varint(binary)
     {[val], rest}
   end
-  defp decode_field_value(binary, 0, %Field{type: t}, _schema_ctx, _msg_desc) when t in ["int32", "int64", "uint32", "uint64"] do
+
+  defp decode_field_value(binary, 0, %Field{type: t}, _schema_ctx, _msg_desc)
+       when t in ["int32", "int64", "uint32", "uint64"] do
     decode_varint(binary)
   end
 
-  defp decode_field_value(binary, 0, %Field{type: "bool", prefix: :repeated}, _schema_ctx, _msg_desc) do
+  defp decode_field_value(
+         binary,
+         0,
+         %Field{type: "bool", prefix: :repeated},
+         _schema_ctx,
+         _msg_desc
+       ) do
     {val, rest} = decode_varint(binary)
     {[val != 0], rest}
   end
+
   defp decode_field_value(binary, 0, %Field{type: "bool"}, _schema_ctx, _msg_desc) do
     {val, rest} = decode_varint(binary)
     {val != 0, rest}
@@ -744,7 +997,8 @@ defmodule SimpleGrpc.Protobuf do
          "fixed64",
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   defp decode_scalar_or_message(
          <<val::little-signed-size(64), rest::binary>>,
@@ -752,7 +1006,8 @@ defmodule SimpleGrpc.Protobuf do
          "sfixed64",
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   defp decode_scalar_or_message(
          <<val::float-little-size(64), rest::binary>>,
@@ -760,7 +1015,8 @@ defmodule SimpleGrpc.Protobuf do
          "double",
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   defp decode_scalar_or_message(
          <<val::little-unsigned-size(64), rest::binary>>,
@@ -768,7 +1024,8 @@ defmodule SimpleGrpc.Protobuf do
          _type,
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   defp decode_scalar_or_message(
          <<val::little-unsigned-size(32), rest::binary>>,
@@ -776,7 +1033,8 @@ defmodule SimpleGrpc.Protobuf do
          "fixed32",
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   defp decode_scalar_or_message(
          <<val::little-signed-size(32), rest::binary>>,
@@ -784,7 +1042,8 @@ defmodule SimpleGrpc.Protobuf do
          "sfixed32",
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   defp decode_scalar_or_message(
          <<val::float-little-size(32), rest::binary>>,
@@ -792,7 +1051,8 @@ defmodule SimpleGrpc.Protobuf do
          "float",
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   defp decode_scalar_or_message(
          <<val::little-unsigned-size(32), rest::binary>>,
@@ -800,7 +1060,8 @@ defmodule SimpleGrpc.Protobuf do
          _type,
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   defp decode_scalar_or_message(binary, 2, "string", _schema_ctx, _msg_desc) do
     {len, rest} = decode_varint(binary)
@@ -856,17 +1117,20 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   defp decode_packed_varints(<<>>), do: []
+
   defp decode_packed_varints(binary) do
     {val, rest} = decode_varint(binary)
     [val | decode_packed_varints(rest)]
   end
 
   defp decode_packed_doubles(<<>>), do: []
+
   defp decode_packed_doubles(<<val::float-little-size(64), rest::binary>>) do
     [val | decode_packed_doubles(rest)]
   end
 
   defp decode_packed_floats(<<>>), do: []
+
   defp decode_packed_floats(<<val::float-little-size(32), rest::binary>>) do
     [val | decode_packed_floats(rest)]
   end
@@ -899,6 +1163,7 @@ defmodule SimpleGrpc.Protobuf do
     case find_oneof_for_field(msg_desc, field.name) do
       %Field{fields: subfields} ->
         sibling_names = Enum.map(subfields, & &1.name)
+
         acc
         |> Map.drop(sibling_names)
         |> Map.put(field.name, value)
@@ -1020,7 +1285,8 @@ defmodule SimpleGrpc.Protobuf do
       enum_desc = resolve_enum_descriptor(type, schema_ctx, msg_desc)
 
       if enum_desc do
-        enum_desc.zero_atom || Enum.find_value(enum_desc.fields, 0, fn {k, v} -> if v == 0, do: k end)
+        enum_desc.zero_atom ||
+          Enum.find_value(enum_desc.fields, 0, fn {k, v} -> if v == 0, do: k end)
       else
         0
       end
@@ -1050,7 +1316,9 @@ defmodule SimpleGrpc.Protobuf do
       enum_desc = resolve_enum_descriptor(type, schema_ctx, msg_desc)
 
       if enum_desc do
-        zero_atom = enum_desc.zero_atom || Enum.find_value(enum_desc.fields, fn {k, v} -> if v == 0, do: k end)
+        zero_atom =
+          enum_desc.zero_atom ||
+            Enum.find_value(enum_desc.fields, fn {k, v} -> if v == 0, do: k end)
 
         val == 0 or val == zero_atom or
           (is_atom(val) and zero_atom != nil and
@@ -1076,15 +1344,16 @@ defmodule SimpleGrpc.Protobuf do
   def encode_varint(n) when is_integer(n) and n >= 0 and n < 128, do: <<n::8>>
 
   def encode_varint(n) when is_integer(n) and n >= 0 and n < 16384 do
-    <<1::1, n &&& 0x7F::7, 0::1, (n >>> 7)::7>>
+    <<1::1, n &&& 0x7F::7, 0::1, n >>> 7::7>>
   end
 
   def encode_varint(n) when is_integer(n) and n >= 0 and n < 2_097_152 do
-    <<1::1, n &&& 0x7F::7, 1::1, (n >>> 7) &&& 0x7F::7, 0::1, (n >>> 14)::7>>
+    <<1::1, n &&& 0x7F::7, 1::1, n >>> 7 &&& 0x7F::7, 0::1, n >>> 14::7>>
   end
 
   def encode_varint(n) when is_integer(n) and n >= 0 and n < 268_435_456 do
-    <<1::1, n &&& 0x7F::7, 1::1, (n >>> 7) &&& 0x7F::7, 1::1, (n >>> 14) &&& 0x7F::7, 0::1, (n >>> 21)::7>>
+    <<1::1, n &&& 0x7F::7, 1::1, n >>> 7 &&& 0x7F::7, 1::1, n >>> 14 &&& 0x7F::7, 0::1,
+      n >>> 21::7>>
   end
 
   def encode_varint(n) when is_integer(n) and n >= 0 do
@@ -1101,25 +1370,25 @@ defmodule SimpleGrpc.Protobuf do
   def decode_varint(<<0::1, val::7, rest::binary>>), do: {val, rest}
 
   def decode_varint(<<1::1, v1::7, 0::1, v2::7, rest::binary>>) do
-    {v1 ||| (v2 <<< 7), rest}
+    {v1 ||| v2 <<< 7, rest}
   end
 
   def decode_varint(<<1::1, v1::7, 1::1, v2::7, 0::1, v3::7, rest::binary>>) do
-    {v1 ||| (v2 <<< 7) ||| (v3 <<< 14), rest}
+    {v1 ||| v2 <<< 7 ||| v3 <<< 14, rest}
   end
 
   def decode_varint(<<1::1, v1::7, 1::1, v2::7, 1::1, v3::7, 0::1, v4::7, rest::binary>>) do
-    {v1 ||| (v2 <<< 7) ||| (v3 <<< 14) ||| (v4 <<< 21), rest}
+    {v1 ||| v2 <<< 7 ||| v3 <<< 14 ||| v4 <<< 21, rest}
   end
 
   def decode_varint(binary, acc \\ 0, shift \\ 0)
 
   def decode_varint(<<0::1, val::7, rest::binary>>, acc, shift) do
-    {acc ||| (val <<< shift), rest}
+    {acc ||| val <<< shift, rest}
   end
 
   def decode_varint(<<1::1, val::7, rest::binary>>, acc, shift) do
-    decode_varint(rest, acc ||| (val <<< shift), shift + 7)
+    decode_varint(rest, acc ||| val <<< shift, shift + 7)
   end
 
   def decode_varint(<<>>, _acc, _shift) do

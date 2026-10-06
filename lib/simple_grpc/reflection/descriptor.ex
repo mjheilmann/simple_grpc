@@ -48,136 +48,164 @@ defmodule SimpleGrpc.Reflection.Descriptor do
   # ===========================================================================
 
   @field_descriptor_proto Builder.make_message("FieldDescriptorProto", [
-    %Field{name: :name, number: 1, type: "string", kind: :field},
-    %Field{name: :number, number: 3, type: "int32", kind: :field},
-    %Field{name: :label, number: 4, type: "int32", kind: :field},
-    %Field{name: :type, number: 5, type: "int32", kind: :field},
-    %Field{name: :type_name, number: 6, type: "string", kind: :field},
-    %Field{name: :extendee, number: 2, type: "string", kind: :field},
-    %Field{name: :default_value, number: 7, type: "string", kind: :field},
-    %Field{name: :oneof_index, number: 9, type: "int32", prefix: :optional, kind: :field},
-    %Field{name: :json_name, number: 10, type: "string", kind: :field},
-    %Field{name: :proto3_optional, number: 17, type: "bool", prefix: :optional, kind: :field}
-  ])
+                            %Field{name: :name, number: 1, type: "string", kind: :field},
+                            %Field{name: :number, number: 3, type: "int32", kind: :field},
+                            %Field{name: :label, number: 4, type: "int32", kind: :field},
+                            %Field{name: :type, number: 5, type: "int32", kind: :field},
+                            %Field{name: :type_name, number: 6, type: "string", kind: :field},
+                            %Field{name: :extendee, number: 2, type: "string", kind: :field},
+                            %Field{name: :default_value, number: 7, type: "string", kind: :field},
+                            %Field{
+                              name: :oneof_index,
+                              number: 9,
+                              type: "int32",
+                              prefix: :optional,
+                              kind: :field
+                            },
+                            %Field{name: :json_name, number: 10, type: "string", kind: :field},
+                            %Field{
+                              name: :proto3_optional,
+                              number: 17,
+                              type: "bool",
+                              prefix: :optional,
+                              kind: :field
+                            }
+                          ])
 
   @oneof_descriptor_proto Builder.make_message("OneofDescriptorProto", [
-    %Field{name: :name, number: 1, type: "string", kind: :field}
-  ])
+                            %Field{name: :name, number: 1, type: "string", kind: :field}
+                          ])
 
   @enum_value_descriptor_proto Builder.make_message("EnumValueDescriptorProto", [
-    %Field{name: :name, number: 1, type: "string", kind: :field},
-    %Field{name: :number, number: 2, type: "int32", kind: :field}
-  ])
+                                 %Field{name: :name, number: 1, type: "string", kind: :field},
+                                 %Field{name: :number, number: 2, type: "int32", kind: :field}
+                               ])
 
   @enum_descriptor_proto Builder.make_message("EnumDescriptorProto", [
-    %Field{name: :name, number: 1, type: "string", kind: :field},
-    %Field{
-      name: :value,
-      number: 2,
-      type: "EnumValueDescriptorProto",
-      prefix: :repeated,
-      kind: :field
-    }
-  ])
+                           %Field{name: :name, number: 1, type: "string", kind: :field},
+                           %Field{
+                             name: :value,
+                             number: 2,
+                             type: "EnumValueDescriptorProto",
+                             prefix: :repeated,
+                             kind: :field
+                           }
+                         ])
 
   @method_descriptor_proto Builder.make_message("MethodDescriptorProto", [
-    %Field{name: :name, number: 1, type: "string", kind: :field},
-    %Field{name: :input_type, number: 2, type: "string", kind: :field},
-    %Field{name: :output_type, number: 3, type: "string", kind: :field},
-    %Field{name: :client_streaming, number: 5, type: "bool", kind: :field},
-    %Field{name: :server_streaming, number: 6, type: "bool", kind: :field}
-  ])
+                             %Field{name: :name, number: 1, type: "string", kind: :field},
+                             %Field{name: :input_type, number: 2, type: "string", kind: :field},
+                             %Field{name: :output_type, number: 3, type: "string", kind: :field},
+                             %Field{
+                               name: :client_streaming,
+                               number: 5,
+                               type: "bool",
+                               kind: :field
+                             },
+                             %Field{
+                               name: :server_streaming,
+                               number: 6,
+                               type: "bool",
+                               kind: :field
+                             }
+                           ])
 
   @service_descriptor_proto Builder.make_message("ServiceDescriptorProto", [
-    %Field{name: :name, number: 1, type: "string", kind: :field},
-    %Field{
-      name: :method,
-      number: 2,
-      type: "MethodDescriptorProto",
-      prefix: :repeated,
-      kind: :field
-    }
-  ])
+                              %Field{name: :name, number: 1, type: "string", kind: :field},
+                              %Field{
+                                name: :method,
+                                number: 2,
+                                type: "MethodDescriptorProto",
+                                prefix: :repeated,
+                                kind: :field
+                              }
+                            ])
 
   @descriptor_proto Builder.make_message("DescriptorProto", [
-    %Field{name: :name, number: 1, type: "string", kind: :field},
-    %Field{
-      name: :field,
-      number: 2,
-      type: "FieldDescriptorProto",
-      prefix: :repeated,
-      kind: :field
-    },
-    %Field{
-      name: :nested_type,
-      number: 3,
-      type: "DescriptorProto",
-      prefix: :repeated,
-      kind: :field
-    },
-    %Field{
-      name: :enum_type,
-      number: 4,
-      type: "EnumDescriptorProto",
-      prefix: :repeated,
-      kind: :field
-    },
-    %Field{
-      name: :oneof_decl,
-      number: 8,
-      type: "OneofDescriptorProto",
-      prefix: :repeated,
-      kind: :field
-    },
-    %Field{name: :options, number: 7, type: "MessageOptions", kind: :field}
-  ])
+                      %Field{name: :name, number: 1, type: "string", kind: :field},
+                      %Field{
+                        name: :field,
+                        number: 2,
+                        type: "FieldDescriptorProto",
+                        prefix: :repeated,
+                        kind: :field
+                      },
+                      %Field{
+                        name: :nested_type,
+                        number: 3,
+                        type: "DescriptorProto",
+                        prefix: :repeated,
+                        kind: :field
+                      },
+                      %Field{
+                        name: :enum_type,
+                        number: 4,
+                        type: "EnumDescriptorProto",
+                        prefix: :repeated,
+                        kind: :field
+                      },
+                      %Field{
+                        name: :oneof_decl,
+                        number: 8,
+                        type: "OneofDescriptorProto",
+                        prefix: :repeated,
+                        kind: :field
+                      },
+                      %Field{name: :options, number: 7, type: "MessageOptions", kind: :field}
+                    ])
 
   @file_descriptor_proto Builder.make_message("FileDescriptorProto", [
-    %Field{name: :name, number: 1, type: "string", kind: :field},
-    %Field{name: :package, number: 2, type: "string", kind: :field},
-    %Field{name: :dependency, number: 3, type: "string", prefix: :repeated, kind: :field},
-    %Field{
-      name: :message_type,
-      number: 4,
-      type: "DescriptorProto",
-      prefix: :repeated,
-      kind: :field
-    },
-    %Field{
-      name: :enum_type,
-      number: 5,
-      type: "EnumDescriptorProto",
-      prefix: :repeated,
-      kind: :field
-    },
-    %Field{
-      name: :service,
-      number: 6,
-      type: "ServiceDescriptorProto",
-      prefix: :repeated,
-      kind: :field
-    },
-    %Field{name: :syntax, number: 12, type: "string", kind: :field}
-  ])
+                           %Field{name: :name, number: 1, type: "string", kind: :field},
+                           %Field{name: :package, number: 2, type: "string", kind: :field},
+                           %Field{
+                             name: :dependency,
+                             number: 3,
+                             type: "string",
+                             prefix: :repeated,
+                             kind: :field
+                           },
+                           %Field{
+                             name: :message_type,
+                             number: 4,
+                             type: "DescriptorProto",
+                             prefix: :repeated,
+                             kind: :field
+                           },
+                           %Field{
+                             name: :enum_type,
+                             number: 5,
+                             type: "EnumDescriptorProto",
+                             prefix: :repeated,
+                             kind: :field
+                           },
+                           %Field{
+                             name: :service,
+                             number: 6,
+                             type: "ServiceDescriptorProto",
+                             prefix: :repeated,
+                             kind: :field
+                           },
+                           %Field{name: :syntax, number: 12, type: "string", kind: :field}
+                         ])
 
   @message_options Builder.make_message("MessageOptions", [
-    %Field{name: :map_entry, number: 7, type: "bool", kind: :field}
-  ])
+                     %Field{name: :map_entry, number: 7, type: "bool", kind: :field}
+                   ])
 
   @descriptor_schema Schema.finalize_schema(%Schema{
-    syntax: :proto3,
-    messages: %{
-      "FileDescriptorProto" => @file_descriptor_proto,
-      "DescriptorProto" => @descriptor_proto,
-      "FieldDescriptorProto" => @field_descriptor_proto,
-      "OneofDescriptorProto" => @oneof_descriptor_proto,
-      "EnumDescriptorProto" => @enum_descriptor_proto,
-      "EnumValueDescriptorProto" => @enum_value_descriptor_proto,
-      "ServiceDescriptorProto" => @service_descriptor_proto,
-      "MethodDescriptorProto" => @method_descriptor_proto,
-      "MessageOptions" => @message_options
-    }
-  })
+                       syntax: :proto3,
+                       messages: %{
+                         "FileDescriptorProto" => @file_descriptor_proto,
+                         "DescriptorProto" => @descriptor_proto,
+                         "FieldDescriptorProto" => @field_descriptor_proto,
+                         "OneofDescriptorProto" => @oneof_descriptor_proto,
+                         "EnumDescriptorProto" => @enum_descriptor_proto,
+                         "EnumValueDescriptorProto" => @enum_value_descriptor_proto,
+                         "ServiceDescriptorProto" => @service_descriptor_proto,
+                         "MethodDescriptorProto" => @method_descriptor_proto,
+                         "MessageOptions" => @message_options
+                       }
+                     })
 
   @doc """
   Returns the internal descriptor schema used for encoding and decoding FileDescriptorProtos.
@@ -198,14 +226,25 @@ defmodule SimpleGrpc.Reflection.Descriptor do
   """
   def encode_file_descriptor(%Schema{} = schema, filename \\ nil) do
     fdp_map = schema_to_file_descriptor_proto(schema, filename)
-    Protobuf.encode!(@descriptor_schema.messages["FileDescriptorProto"], fdp_map, @descriptor_schema)
+
+    Protobuf.encode!(
+      @descriptor_schema.messages["FileDescriptorProto"],
+      fdp_map,
+      @descriptor_schema
+    )
   end
 
   @doc """
   Decodes a binary `FileDescriptorProto` payload into a `%SimpleGrpc.Schema{}` struct.
   """
   def decode_file_descriptor(binary) when is_binary(binary) do
-    decoded_map = Protobuf.decode!(@descriptor_schema.messages["FileDescriptorProto"], binary, @descriptor_schema)
+    decoded_map =
+      Protobuf.decode!(
+        @descriptor_schema.messages["FileDescriptorProto"],
+        binary,
+        @descriptor_schema
+      )
+
     file_descriptor_proto_to_schema(decoded_map)
   end
 
@@ -294,7 +333,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
 
     name =
       filename ||
-        (if package != "", do: "#{package}.proto", else: "service.proto")
+        if package != "", do: "#{package}.proto", else: "service.proto"
 
     # Filter out duplicate alias keys from schema.services, schema.messages, schema.enums
     services =
@@ -342,7 +381,15 @@ defmodule SimpleGrpc.Reflection.Descriptor do
   # Message Conversion
   # ---------------------------------------------------------------------------
 
-  defp message_to_proto(%Message{name: name, fields: fields, nested_messages: nested_msgs, nested_enums: nested_enums}, package) do
+  defp message_to_proto(
+         %Message{
+           name: name,
+           fields: fields,
+           nested_messages: nested_msgs,
+           nested_enums: nested_enums
+         },
+         package
+       ) do
     # Separate oneof definitions
     {oneof_decls, regular_and_oneof_fields, synthetic_map_entries} =
       process_message_fields(fields, name, package)
@@ -364,7 +411,8 @@ defmodule SimpleGrpc.Reflection.Descriptor do
 
   defp process_message_fields(fields, parent_msg_name, package) do
     Enum.reduce(fields, {[], [], []}, fn
-      %Field{kind: :oneof, name: oneof_name, fields: subfields}, {oneof_acc, fields_acc, map_acc} ->
+      %Field{kind: :oneof, name: oneof_name, fields: subfields},
+      {oneof_acc, fields_acc, map_acc} ->
         oneof_index = length(oneof_acc)
         oneof_decl = %{name: to_string(oneof_name)}
 
@@ -375,16 +423,30 @@ defmodule SimpleGrpc.Reflection.Descriptor do
 
         {oneof_acc ++ [oneof_decl], fields_acc ++ oneof_fields, map_acc}
 
-      %Field{kind: :map, name: field_name, number: num, key_type: k_type, val_type: v_type} = map_field, {oneof_acc, fields_acc, map_acc} ->
+      %Field{kind: :map, name: field_name, number: num, key_type: k_type, val_type: v_type} =
+          map_field,
+      {oneof_acc, fields_acc, map_acc} ->
         # Protobuf represents maps as synthetic repeated MapEntry nested messages
         entry_name = Macro.camelize(to_string(field_name)) <> "Entry"
-        full_entry_type = if package != "", do: ".#{package}.#{parent_msg_name}.#{entry_name}", else: ".#{parent_msg_name}.#{entry_name}"
+
+        full_entry_type =
+          if package != "",
+            do: ".#{package}.#{parent_msg_name}.#{entry_name}",
+            else: ".#{parent_msg_name}.#{entry_name}"
 
         map_entry_desc = %{
           name: entry_name,
           field: [
-            field_to_proto(%Field{name: :key, number: 1, type: k_type, kind: :field}, package, []),
-            field_to_proto(%Field{name: :value, number: 2, type: v_type, kind: :field}, package, [])
+            field_to_proto(
+              %Field{name: :key, number: 1, type: k_type, kind: :field},
+              package,
+              []
+            ),
+            field_to_proto(
+              %Field{name: :value, number: 2, type: v_type, kind: :field},
+              package,
+              []
+            )
           ],
           nested_type: [],
           enum_type: [],
@@ -395,8 +457,10 @@ defmodule SimpleGrpc.Reflection.Descriptor do
         fdp = %{
           name: to_string(map_field.name),
           number: num,
-          label: 3, # LABEL_REPEATED
-          type: 11, # TYPE_MESSAGE
+          # LABEL_REPEATED
+          label: 3,
+          # TYPE_MESSAGE
+          type: 11,
           type_name: full_entry_type,
           json_name: to_json_name(map_field.name),
           proto3_optional: false
@@ -416,9 +480,12 @@ defmodule SimpleGrpc.Reflection.Descriptor do
 
     label =
       cond do
-        prefix == :repeated -> 3 # LABEL_REPEATED
-        prefix == :optional -> 1 # LABEL_OPTIONAL
-        true -> 1 # LABEL_OPTIONAL (proto3 default)
+        # LABEL_REPEATED
+        prefix == :repeated -> 3
+        # LABEL_OPTIONAL
+        prefix == :optional -> 1
+        # LABEL_OPTIONAL (proto3 default)
+        true -> 1
       end
 
     type_name =
@@ -522,9 +589,16 @@ defmodule SimpleGrpc.Reflection.Descriptor do
       Enum.map(raw_methods, fn method ->
         m_name = Map.get(method, :name) || Map.get(method, "name")
         in_type = clean_type_name(Map.get(method, :input_type) || Map.get(method, "input_type"))
-        out_type = clean_type_name(Map.get(method, :output_type) || Map.get(method, "output_type"))
-        c_stream = Map.get(method, :client_streaming) || Map.get(method, "client_streaming") || false
-        s_stream = Map.get(method, :server_streaming) || Map.get(method, "server_streaming") || false
+
+        out_type =
+          clean_type_name(Map.get(method, :output_type) || Map.get(method, "output_type"))
+
+        c_stream =
+          Map.get(method, :client_streaming) || Map.get(method, "client_streaming") || false
+
+        s_stream =
+          Map.get(method, :server_streaming) || Map.get(method, "server_streaming") || false
+
         path = "/#{full_name}/#{m_name}"
 
         rpc = %RPC{
@@ -572,17 +646,29 @@ defmodule SimpleGrpc.Reflection.Descriptor do
       |> Map.new(fn n ->
         n_name = to_string(Map.get(n, :name) || Map.get(n, "name"))
         fields = Map.get(n, :field) || Map.get(n, "field") || []
-        k_field = Enum.find(fields, fn f -> (Map.get(f, :number) || Map.get(f, "number")) == 1 end)
-        v_field = Enum.find(fields, fn f -> (Map.get(f, :number) || Map.get(f, "number")) == 2 end)
+
+        k_field =
+          Enum.find(fields, fn f -> (Map.get(f, :number) || Map.get(f, "number")) == 1 end)
+
+        v_field =
+          Enum.find(fields, fn f -> (Map.get(f, :number) || Map.get(f, "number")) == 2 end)
 
         k_type =
           if k_field,
-            do: type_code_to_type_name(Map.get(k_field, :type) || Map.get(k_field, "type"), Map.get(k_field, :type_name) || Map.get(k_field, "type_name")),
+            do:
+              type_code_to_type_name(
+                Map.get(k_field, :type) || Map.get(k_field, "type"),
+                Map.get(k_field, :type_name) || Map.get(k_field, "type_name")
+              ),
             else: "string"
 
         v_type =
           if v_field,
-            do: type_code_to_type_name(Map.get(v_field, :type) || Map.get(v_field, "type"), Map.get(v_field, :type_name) || Map.get(v_field, "type_name")),
+            do:
+              type_code_to_type_name(
+                Map.get(v_field, :type) || Map.get(v_field, "type"),
+                Map.get(v_field, :type_name) || Map.get(v_field, "type_name")
+              ),
             else: "string"
 
         {n_name, {k_type, v_type}}
@@ -725,7 +811,9 @@ defmodule SimpleGrpc.Reflection.Descriptor do
     nested_entries =
       Enum.flat_map(msg.nested_messages, fn nested ->
         nested_full_name =
-          if msg.full_name, do: "#{msg.full_name}.#{nested.name}", else: "#{msg.name}.#{nested.name}"
+          if msg.full_name,
+            do: "#{msg.full_name}.#{nested.name}",
+            else: "#{msg.name}.#{nested.name}"
 
         nested = %{nested | full_name: nested_full_name}
 
@@ -748,7 +836,8 @@ defmodule SimpleGrpc.Reflection.Descriptor do
        }) do
     direct =
       Enum.flat_map(nested_enums, fn enum ->
-        enum_full = if full_name, do: "#{full_name}.#{enum.name}", else: "#{msg_name}.#{enum.name}"
+        enum_full =
+          if full_name, do: "#{full_name}.#{enum.name}", else: "#{msg_name}.#{enum.name}"
 
         [
           {enum.name, enum},
@@ -785,9 +874,11 @@ defmodule SimpleGrpc.Reflection.Descriptor do
   def type_code_to_type_name(_other, type_name), do: clean_type_name(type_name)
 
   def clean_type_name(nil), do: ""
+
   def clean_type_name(type_name) when is_binary(type_name) do
     String.trim_leading(type_name, ".")
   end
+
   def clean_type_name(other), do: to_string(other)
 
   def type_name_to_type_code("double"), do: 1
@@ -808,9 +899,11 @@ defmodule SimpleGrpc.Reflection.Descriptor do
 
   def type_name_to_type_code(type) when is_binary(type) do
     if is_known_enum_type?(type) do
-      14 # TYPE_ENUM
+      # TYPE_ENUM
+      14
     else
-      11 # TYPE_MESSAGE
+      # TYPE_MESSAGE
+      11
     end
   end
 
@@ -822,7 +915,8 @@ defmodule SimpleGrpc.Reflection.Descriptor do
       String.contains?(type, "Enum") or String.contains?(type, "NullValue")
   end
 
-  defp format_full_type_name(type, _package) when is_binary(type) and binary_part(type, 0, 1) == "." do
+  defp format_full_type_name(type, _package)
+       when is_binary(type) and binary_part(type, 0, 1) == "." do
     type
   end
 
@@ -852,6 +946,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
   end
 
   defp lowercase_first(""), do: ""
+
   defp lowercase_first(<<first::utf8, rest::binary>>) do
     String.downcase(<<first::utf8>>) <> rest
   end

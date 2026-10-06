@@ -157,10 +157,12 @@ defmodule SimpleGrpc.Client do
             {:ok, schema}
 
           {:ok, _empty} ->
-            {:error, :no_schema, "No schema attached to connection and reflection returned empty schema"}
+            {:error, :no_schema,
+             "No schema attached to connection and reflection returned empty schema"}
 
           {:error, reason} ->
-            {:error, :no_schema, "No schema attached to connection and reflection discovery failed: #{inspect(reason)}"}
+            {:error, :no_schema,
+             "No schema attached to connection and reflection discovery failed: #{inspect(reason)}"}
         end
     end
   end
@@ -214,7 +216,8 @@ defmodule SimpleGrpc.Client do
     if found_rpc do
       {:ok, found_rpc}
     else
-      {:error, :method_not_found, "Method #{inspect(method_name)} not found in service #{inspect(svc_name)}"}
+      {:error, :method_not_found,
+       "Method #{inspect(method_name)} not found in service #{inspect(svc_name)}"}
     end
   end
 
@@ -275,7 +278,8 @@ defmodule SimpleGrpc.Client do
                   is_binary(resp_stream) ->
                     resp_stream
 
-                  is_struct(resp_stream, Stream) or is_function(resp_stream, 2) or is_list(resp_stream) ->
+                  is_struct(resp_stream, Stream) or is_function(resp_stream, 2) or
+                      is_list(resp_stream) ->
                     Enum.at(resp_stream, 0) || <<>>
 
                   true ->

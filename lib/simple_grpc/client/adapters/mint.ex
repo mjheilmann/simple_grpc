@@ -90,6 +90,7 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
              {:ok, conn, early_responses} <-
                stream_large_body(conn, request_ref, framed_payload, timeout, []) do
           new_requests = Map.put(state.requests, request_ref, req_meta)
+
           {new_requests, new_streams} =
             process_multiplexed_responses(early_responses, new_requests, state.streams)
 
@@ -300,7 +301,8 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
       {:ok, conn, early_responses}
     end
 
-    defp stream_single_framed_chunk(conn, request_ref, data, timeout, early_responses) when is_binary(data) do
+    defp stream_single_framed_chunk(conn, request_ref, data, timeout, early_responses)
+         when is_binary(data) do
       if is_struct(conn, Mint.HTTP2) and not Map.has_key?(conn.ref_to_stream_id, request_ref) do
         {:ok, conn, early_responses}
       else
@@ -329,7 +331,13 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
             message ->
               case Mint.HTTP.stream(conn, message) do
                 {:ok, next_conn, responses} ->
-                  stream_single_framed_chunk(next_conn, request_ref, data, timeout, early_responses ++ responses)
+                  stream_single_framed_chunk(
+                    next_conn,
+                    request_ref,
+                    data,
+                    timeout,
+                    early_responses ++ responses
+                  )
 
                 {:error, next_conn, reason, _responses} ->
                   {:error, next_conn, reason}
@@ -352,7 +360,8 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
       end
     end
 
-    defp stream_large_body(conn, request_ref, data, timeout, early_responses) when is_binary(data) do
+    defp stream_large_body(conn, request_ref, data, timeout, early_responses)
+         when is_binary(data) do
       if is_struct(conn, Mint.HTTP2) and not Map.has_key?(conn.ref_to_stream_id, request_ref) do
         {:ok, conn, early_responses}
       else
@@ -381,7 +390,13 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
             message ->
               case Mint.HTTP.stream(conn, message) do
                 {:ok, next_conn, responses} ->
-                  stream_large_body(next_conn, request_ref, data, timeout, early_responses ++ responses)
+                  stream_large_body(
+                    next_conn,
+                    request_ref,
+                    data,
+                    timeout,
+                    early_responses ++ responses
+                  )
 
                 {:error, next_conn, reason, _responses} ->
                   {:error, next_conn, reason}
@@ -397,14 +412,13 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
       end
     end
 
-
-
     # -------------------------------------------------------------------------
     # Next Message Receiver for Progressive Streams
     # -------------------------------------------------------------------------
 
     defp receive_next_message_loop(conn, streams, request_ref, timeout) do
-      stream_meta = Map.get(streams, request_ref, %{buffer: <<>>, trailers: [], done: false, headers: []})
+      stream_meta =
+        Map.get(streams, request_ref, %{buffer: <<>>, trailers: [], done: false, headers: []})
 
       case Framing.unframe(stream_meta.buffer) do
         {:ok, message, rest_buffer} ->
@@ -414,7 +428,9 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
 
         {:incomplete, _} ->
           if stream_meta.done do
-            {status, msg} = Framing.extract_grpc_status(stream_meta.trailers ++ stream_meta.headers)
+            {status, msg} =
+              Framing.extract_grpc_status(stream_meta.trailers ++ stream_meta.headers)
+
             new_streams = Map.delete(streams, request_ref)
 
             if status == 0 do
@@ -449,8 +465,15 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
       Enum.reduce(responses, streams, fn
         {:headers, ref, headers}, acc ->
           case Map.get(acc, ref) do
-            nil -> acc
-            meta -> Map.put(acc, ref, %{meta | headers: meta.headers ++ headers, trailers: meta.trailers ++ headers})
+            nil ->
+              acc
+
+            meta ->
+              Map.put(acc, ref, %{
+                meta
+                | headers: meta.headers ++ headers,
+                  trailers: meta.trailers ++ headers
+              })
           end
 
         {:data, ref, chunk}, acc ->

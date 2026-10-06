@@ -66,7 +66,10 @@ defmodule SimpleGrpc.TelemetryTest do
 
     {:ok, schema} = Schema.from_file(@proto_file)
     input_msg = Schema.message(schema, "StreamRequest")
-    {:ok, payload} = SimpleGrpc.Protobuf.encode(input_msg, %{message: "Telemetry Hello", sequence: 10}, schema)
+
+    {:ok, payload} =
+      SimpleGrpc.Protobuf.encode(input_msg, %{message: "Telemetry Hello", sequence: 10}, schema)
+
     framed = GrpcPlug.frame_grpc_message(payload)
 
     conn =
@@ -106,7 +109,10 @@ defmodule SimpleGrpc.TelemetryTest do
 
     {:ok, schema} = Schema.from_file(@proto_file)
     input_msg = Schema.message(schema, "StreamRequest")
-    {:ok, payload} = SimpleGrpc.Protobuf.encode(input_msg, %{message: "error", sequence: 1}, schema)
+
+    {:ok, payload} =
+      SimpleGrpc.Protobuf.encode(input_msg, %{message: "error", sequence: 1}, schema)
+
     framed = GrpcPlug.frame_grpc_message(payload)
 
     conn =
@@ -135,7 +141,10 @@ defmodule SimpleGrpc.TelemetryTest do
 
     {:ok, schema} = Schema.from_file(@proto_file)
     input_msg = Schema.message(schema, "StreamRequest")
-    {:ok, payload} = SimpleGrpc.Protobuf.encode(input_msg, %{message: "crash", sequence: 1}, schema)
+
+    {:ok, payload} =
+      SimpleGrpc.Protobuf.encode(input_msg, %{message: "crash", sequence: 1}, schema)
+
     framed = GrpcPlug.frame_grpc_message(payload)
 
     conn =

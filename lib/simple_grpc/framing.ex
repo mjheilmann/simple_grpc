@@ -37,7 +37,10 @@ defmodule SimpleGrpc.Framing do
   """
   def unframe(binary, opts \\ [])
 
-  def unframe(<<compressed::8, length::32-big, payload::binary-size(length), rest::binary>>, _opts) do
+  def unframe(
+        <<compressed::8, length::32-big, payload::binary-size(length), rest::binary>>,
+        _opts
+      ) do
     case compressed do
       0 ->
         {:ok, payload, rest}
@@ -77,7 +80,9 @@ defmodule SimpleGrpc.Framing do
 
     status_code =
       case status_str do
-        nil -> 0
+        nil ->
+          0
+
         val ->
           case Integer.parse(val) do
             {int, _} -> int

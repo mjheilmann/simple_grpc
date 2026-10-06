@@ -300,6 +300,7 @@ defmodule SimpleGrpc.Schema do
               linked_sub =
                 Enum.map(subfields, fn f ->
                   siblings = List.delete(subfield_names, f.name)
+
                   f
                   |> Map.put(:oneof_siblings, siblings)
                   |> link_field_descriptors(schema)
@@ -374,7 +375,8 @@ defmodule SimpleGrpc.Schema do
     SimpleGrpc.Compiler.compile_schema(finalized)
   end
 
-  defp link_field_descriptors(%Field{type: type, number: num} = field, schema) when is_binary(type) do
+  defp link_field_descriptors(%Field{type: type, number: num} = field, schema)
+       when is_binary(type) do
     case field_wire_type(type) do
       nil ->
         sub_desc = message(schema, type)
@@ -387,7 +389,9 @@ defmodule SimpleGrpc.Schema do
             true -> nil
           end
 
-        tag_bytes = if is_integer(num) and is_integer(wire_type), do: encode_tag(num, wire_type), else: nil
+        tag_bytes =
+          if is_integer(num) and is_integer(wire_type), do: encode_tag(num, wire_type), else: nil
+
         is_packable = if enum_desc, do: true, else: false
 
         default_val =
@@ -434,8 +438,9 @@ defmodule SimpleGrpc.Schema do
   end
 
   defp encode_varint_bin(n) when is_integer(n) and n >= 0 and n <= 127, do: <<n>>
+
   defp encode_varint_bin(n) when is_integer(n) and n >= 0 do
-    <<1::1, (n &&& 0x7F)::7, encode_varint_bin(n >>> 7)::binary>>
+    <<1::1, n &&& 0x7F::7, encode_varint_bin(n >>> 7)::binary>>
   end
 
   defp is_packable_type("string"), do: false
@@ -675,7 +680,13 @@ defmodule SimpleGrpc.Schema do
     {Map.values(acc_messages), Map.values(acc_enums)}
   end
 
-  defp traverse_type_dependencies([type_name | rest_types], schema, visited, acc_messages, acc_enums) do
+  defp traverse_type_dependencies(
+         [type_name | rest_types],
+         schema,
+         visited,
+         acc_messages,
+         acc_enums
+       ) do
     clean_type = type_name |> to_string() |> String.trim_leading(".")
 
     if MapSet.member?(visited, clean_type) do
@@ -692,10 +703,19 @@ defmodule SimpleGrpc.Schema do
 
           # Extract referenced types from message fields and nested structures
           referenced = extract_referenced_types(msg)
-          traverse_type_dependencies(rest_types ++ referenced, schema, visited, acc_messages, acc_enums)
+
+          traverse_type_dependencies(
+            rest_types ++ referenced,
+            schema,
+            visited,
+            acc_messages,
+            acc_enums
+          )
 
         enum_val != nil ->
-          enum_name = if is_struct(enum_val, SchemaEnum), do: enum_val.name, else: to_string(clean_type)
+          enum_name =
+            if is_struct(enum_val, SchemaEnum), do: enum_val.name, else: to_string(clean_type)
+
           acc_enums = Map.put(acc_enums, enum_name, enum_val)
           traverse_type_dependencies(rest_types, schema, visited, acc_messages, acc_enums)
 
@@ -705,7 +725,11 @@ defmodule SimpleGrpc.Schema do
     end
   end
 
-  defp extract_referenced_types(%Message{fields: fields, nested_messages: nested_messages, nested_enums: _nested_enums}) do
+  defp extract_referenced_types(%Message{
+         fields: fields,
+         nested_messages: nested_messages,
+         nested_enums: _nested_enums
+       }) do
     field_types =
       Enum.flat_map(fields, fn
         %Field{kind: :map, key_type: k, val_type: v} -> [k, v]
@@ -717,7 +741,9 @@ defmodule SimpleGrpc.Schema do
     nested_types = Enum.flat_map(nested_messages, &extract_referenced_types/1)
 
     (field_types ++ nested_types)
-    |> Enum.reject(&(&1 in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64 float double bool string bytes)))
+    |> Enum.reject(
+      &(&1 in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64 float double bool string bytes))
+    )
   end
 
   defp flatten_message_entries(%Message{} = msg) do
@@ -731,7 +757,9 @@ defmodule SimpleGrpc.Schema do
     nested_entries =
       Enum.flat_map(msg.nested_messages, fn nested ->
         nested_full_name =
-          if msg.full_name, do: "#{msg.full_name}.#{nested.name}", else: "#{msg.name}.#{nested.name}"
+          if msg.full_name,
+            do: "#{msg.full_name}.#{nested.name}",
+            else: "#{msg.name}.#{nested.name}"
 
         nested = %{nested | full_name: nested_full_name}
 
@@ -754,7 +782,8 @@ defmodule SimpleGrpc.Schema do
        }) do
     direct =
       Enum.flat_map(nested_enums, fn enum ->
-        enum_full = if full_name, do: "#{full_name}.#{enum.name}", else: "#{msg_name}.#{enum.name}"
+        enum_full =
+          if full_name, do: "#{full_name}.#{enum.name}", else: "#{msg_name}.#{enum.name}"
 
         [
           {enum.name, enum},

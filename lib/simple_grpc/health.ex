@@ -201,7 +201,7 @@ defmodule SimpleGrpc.Health do
   """
   def watch(req) do
     service = (is_map(req) && Map.get(req, :service)) || ""
-    initial_status = get_status(service) || (if service == "", do: :SERVING, else: :SERVICE_UNKNOWN)
+    initial_status = get_status(service) || if service == "", do: :SERVING, else: :SERVICE_UNKNOWN
 
     Stream.resource(
       fn ->

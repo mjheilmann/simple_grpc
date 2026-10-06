@@ -64,7 +64,9 @@ defmodule SimpleGrpc.Client.StreamingTransportTest do
     test "Mint: consumes server stream lazily and halts early with Enum.take/2", %{port: port} do
       {:ok, conn} = SimpleGrpc.Client.connect("localhost:#{port}", adapter: :mint)
 
-      req = StreamingClient.build_request(:server_streaming_call, %{message: "LazyTest", sequence: 0})
+      req =
+        StreamingClient.build_request(:server_streaming_call, %{message: "LazyTest", sequence: 0})
+
       assert {:ok, stream} = StreamingClient.server_streaming_call(conn, req)
 
       # Take only first 3 items from a 10-item stream
@@ -81,7 +83,12 @@ defmodule SimpleGrpc.Client.StreamingTransportTest do
     test "Mint: consumes complete server stream to the end", %{port: port} do
       {:ok, conn} = SimpleGrpc.Client.connect("localhost:#{port}", adapter: :mint)
 
-      req = StreamingClient.build_request(:server_streaming_call, %{message: "FullTest", sequence: 100})
+      req =
+        StreamingClient.build_request(:server_streaming_call, %{
+          message: "FullTest",
+          sequence: 100
+        })
+
       assert {:ok, stream} = StreamingClient.server_streaming_call(conn, req)
 
       all_chunks = Enum.to_list(stream)
@@ -96,7 +103,12 @@ defmodule SimpleGrpc.Client.StreamingTransportTest do
     test "Plug: consumes server stream lazily" do
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
-      req = StreamingClient.build_request(:server_streaming_call, %{message: "PlugStream", sequence: 5})
+      req =
+        StreamingClient.build_request(:server_streaming_call, %{
+          message: "PlugStream",
+          sequence: 5
+        })
+
       assert {:ok, stream} = StreamingClient.server_streaming_call(conn, req)
 
       first_two = Enum.take(stream, 2)

@@ -57,7 +57,8 @@ defmodule SimpleGrpc.Reflection.Server do
 
   def server_reflection_info(req, _stream, opts) do
     cond do
-      is_struct(req, Stream) or is_function(req, 2) or (is_list(req) and not Keyword.keyword?(req)) ->
+      is_struct(req, Stream) or is_function(req, 2) or
+          (is_list(req) and not Keyword.keyword?(req)) ->
         Stream.map(req, fn single_req ->
           {:ok, resp} = process_reflection_request(single_req, opts)
           resp
@@ -376,7 +377,10 @@ defmodule SimpleGrpc.Reflection.Server do
     end)
   end
 
-  defp schema_contains_symbol?(%Schema{services: services, messages: messages, enums: enums, package: package}, symbol) do
+  defp schema_contains_symbol?(
+         %Schema{services: services, messages: messages, enums: enums, package: package},
+         symbol
+       ) do
     clean_sym = String.trim_leading(symbol, ".")
 
     # 1. Match service

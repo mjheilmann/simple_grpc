@@ -44,7 +44,10 @@ defmodule SimpleGrpc.GrpcurlTest do
     :ok
   end
 
-  test "grpcurl calls static SimpleGrpc.Server module over HTTP/2", %{grpcurl: grpcurl, port: port} do
+  test "grpcurl calls static SimpleGrpc.Server module over HTTP/2", %{
+    grpcurl: grpcurl,
+    port: port
+  } do
     {output, 0} =
       System.cmd(grpcurl, [
         "-plaintext",
@@ -114,7 +117,10 @@ defmodule SimpleGrpc.GrpcurlTest do
     assert output2 =~ ~s("sequence": 50)
   end
 
-  test "grpcurl receives standard gRPC error status and message from handler", %{grpcurl: grpcurl, port: port} do
+  test "grpcurl receives standard gRPC error status and message from handler", %{
+    grpcurl: grpcurl,
+    port: port
+  } do
     # Register a dynamic handler that returns a NotFound (code 5) gRPC error
     {:ok, schema} = Schema.from_file(@proto_file)
 
@@ -144,7 +150,10 @@ defmodule SimpleGrpc.GrpcurlTest do
     assert output =~ "Requested user entity was not found in database"
   end
 
-  test "grpcurl receives Unimplemented (12) for unknown service or method", %{grpcurl: grpcurl, port: port} do
+  test "grpcurl receives Unimplemented (12) for unknown service or method", %{
+    grpcurl: grpcurl,
+    port: port
+  } do
     unregistered_proto = "priv/protos/global_service.proto"
 
     {output, exit_code} =
@@ -167,7 +176,10 @@ defmodule SimpleGrpc.GrpcurlTest do
     assert output =~ "unknown service or method"
   end
 
-  test "grpcurl sends and handler receives HTTP/2 request headers / metadata", %{grpcurl: grpcurl, port: port} do
+  test "grpcurl sends and handler receives HTTP/2 request headers / metadata", %{
+    grpcurl: grpcurl,
+    port: port
+  } do
     # Register a handler that extracts custom header from conn
     {:ok, schema} = Schema.from_file(@proto_file)
 
@@ -203,7 +215,13 @@ defmodule SimpleGrpc.GrpcurlTest do
     {:ok, schema} = Schema.from_file(proto_imports)
 
     SimpleGrpc.register_service(schema, %{
-      create_user: fn %{name: name, email: _email, address: addr, location: loc, registered_at: reg_at} ->
+      create_user: fn %{
+                        name: name,
+                        email: _email,
+                        address: addr,
+                        location: loc,
+                        registered_at: reg_at
+                      } ->
         {:ok,
          %{
            user_id: "user_created_#{name}",
@@ -274,9 +292,7 @@ defmodule SimpleGrpc.GrpcurlTest do
       port: port
     } do
       {output, 0} =
-        System.cmd(grpcurl, ["-plaintext", "127.0.0.1:#{port}", "list"],
-          stderr_to_stdout: true
-        )
+        System.cmd(grpcurl, ["-plaintext", "127.0.0.1:#{port}", "list"], stderr_to_stdout: true)
 
       assert output =~ "streaming.StreamingService"
       assert output =~ "grpc.reflection.v1.ServerReflection"

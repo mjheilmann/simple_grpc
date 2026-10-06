@@ -65,7 +65,10 @@ defmodule SimpleGrpc.Client.ReflectionTest do
       assert decoded_schema.syntax == :proto3
 
       # Services
-      service = decoded_schema.services["StreamingService"] || decoded_schema.services["streaming.StreamingService"]
+      service =
+        decoded_schema.services["StreamingService"] ||
+          decoded_schema.services["streaming.StreamingService"]
+
       assert service != nil
       assert Map.has_key?(service.rpcs, "UnaryCall")
       assert Map.has_key?(service.rpcs, "ServerStreamingCall")
@@ -84,7 +87,10 @@ defmodule SimpleGrpc.Client.ReflectionTest do
       refute server_stream_rpc.request_stream
 
       # Messages
-      req_msg = decoded_schema.messages["StreamRequest"] || decoded_schema.messages["streaming.StreamRequest"]
+      req_msg =
+        decoded_schema.messages["StreamRequest"] ||
+          decoded_schema.messages["streaming.StreamRequest"]
+
       assert req_msg != nil
       assert SimpleGrpc.Schema.Message.field_by_name(req_msg, :message) != nil
       assert SimpleGrpc.Schema.Message.field_by_name(req_msg, :sequence) != nil
@@ -104,7 +110,9 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     test "file_containing_symbol/3 returns binary descriptor protos" do
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
-      assert {:ok, fdp_list} = ClientReflection.file_containing_symbol(conn, "streaming.StreamingService")
+      assert {:ok, fdp_list} =
+               ClientReflection.file_containing_symbol(conn, "streaming.StreamingService")
+
       assert length(fdp_list) > 0
       assert Enum.all?(fdp_list, &is_binary/1)
     end
@@ -112,7 +120,9 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     test "file_containing_symbol/3 returns error when symbol not found" do
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
-      assert {:error, 5, msg} = ClientReflection.file_containing_symbol(conn, "nonexistent.Symbol")
+      assert {:error, 5, msg} =
+               ClientReflection.file_containing_symbol(conn, "nonexistent.Symbol")
+
       assert msg =~ "not found"
     end
 
@@ -124,7 +134,9 @@ defmodule SimpleGrpc.Client.ReflectionTest do
       assert length(fdp_list1) > 0
 
       # Relative proto path
-      assert {:ok, fdp_list2} = ClientReflection.file_by_filename(conn, "streaming/streaming_service.proto")
+      assert {:ok, fdp_list2} =
+               ClientReflection.file_by_filename(conn, "streaming/streaming_service.proto")
+
       assert length(fdp_list2) > 0
     end
 
@@ -133,9 +145,14 @@ defmodule SimpleGrpc.Client.ReflectionTest do
 
       assert {:ok, %Schema{} = schema} = ClientReflection.fetch_schema(conn)
 
-      assert Map.has_key?(schema.services, "StreamingService") or Map.has_key?(schema.services, "streaming.StreamingService")
-      assert Map.has_key?(schema.messages, "StreamRequest") or Map.has_key?(schema.messages, "streaming.StreamRequest")
-      assert Map.has_key?(schema.messages, "StreamResponse") or Map.has_key?(schema.messages, "streaming.StreamResponse")
+      assert Map.has_key?(schema.services, "StreamingService") or
+               Map.has_key?(schema.services, "streaming.StreamingService")
+
+      assert Map.has_key?(schema.messages, "StreamRequest") or
+               Map.has_key?(schema.messages, "streaming.StreamRequest")
+
+      assert Map.has_key?(schema.messages, "StreamResponse") or
+               Map.has_key?(schema.messages, "streaming.StreamResponse")
 
       # Reflection service excluded by default
       refute Map.has_key?(schema.services, "grpc.reflection.v1.ServerReflection")
@@ -144,19 +161,26 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     test "fetch_schema/2 for specific service symbol" do
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
-      assert {:ok, %Schema{} = schema} = ClientReflection.fetch_schema(conn, "streaming.StreamingService")
+      assert {:ok, %Schema{} = schema} =
+               ClientReflection.fetch_schema(conn, "streaming.StreamingService")
 
-      assert Map.has_key?(schema.services, "StreamingService") or Map.has_key?(schema.services, "streaming.StreamingService")
-      assert Map.has_key?(schema.messages, "StreamRequest") or Map.has_key?(schema.messages, "streaming.StreamRequest")
+      assert Map.has_key?(schema.services, "StreamingService") or
+               Map.has_key?(schema.services, "streaming.StreamingService")
+
+      assert Map.has_key?(schema.messages, "StreamRequest") or
+               Map.has_key?(schema.messages, "streaming.StreamRequest")
     end
 
     test "fetch_schema/2 with include_reflection: true includes reflection schemas" do
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
-      assert {:ok, %Schema{} = schema} = ClientReflection.fetch_schema(conn, include_reflection: true)
+      assert {:ok, %Schema{} = schema} =
+               ClientReflection.fetch_schema(conn, include_reflection: true)
 
       assert Map.has_key?(schema.services, "grpc.reflection.v1.ServerReflection")
-      assert Map.has_key?(schema.services, "streaming.StreamingService") or Map.has_key?(schema.services, "StreamingService")
+
+      assert Map.has_key?(schema.services, "streaming.StreamingService") or
+               Map.has_key?(schema.services, "StreamingService")
     end
   end
 
@@ -170,7 +194,9 @@ defmodule SimpleGrpc.Client.ReflectionTest do
 
       # 2. Fetch schema dynamically over network
       assert {:ok, %Schema{} = schema} = ClientReflection.fetch_schema(conn)
-      assert Map.has_key?(schema.services, "StreamingService") or Map.has_key?(schema.services, "streaming.StreamingService")
+
+      assert Map.has_key?(schema.services, "StreamingService") or
+               Map.has_key?(schema.services, "streaming.StreamingService")
 
       SimpleGrpc.Client.close(conn)
     end

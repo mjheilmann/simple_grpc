@@ -203,20 +203,21 @@ defmodule SimpleGrpc.Schema.Field do
   def compute_is_packable(_other), do: false
 
   defp encode_tag(field_num, wire_type) do
-    tag = (field_num <<< 3) ||| wire_type
+    tag = field_num <<< 3 ||| wire_type
+
     cond do
       tag < 128 ->
         <<tag>>
 
       tag < 16384 ->
-        <<1::1, (tag &&& 0x7F)::7, 0::1, (tag >>> 7)::7>>
+        <<1::1, tag &&& 0x7F::7, 0::1, tag >>> 7::7>>
 
       tag < 2_097_152 ->
-        <<1::1, (tag &&& 0x7F)::7, 1::1, ((tag >>> 7) &&& 0x7F)::7, 0::1, (tag >>> 14)::7>>
+        <<1::1, tag &&& 0x7F::7, 1::1, tag >>> 7 &&& 0x7F::7, 0::1, tag >>> 14::7>>
 
       true ->
-        <<1::1, (tag &&& 0x7F)::7, 1::1, ((tag >>> 7) &&& 0x7F)::7, 1::1,
-          ((tag >>> 14) &&& 0x7F)::7, 0::1, (tag >>> 21)::7>>
+        <<1::1, tag &&& 0x7F::7, 1::1, tag >>> 7 &&& 0x7F::7, 1::1, tag >>> 14 &&& 0x7F::7, 0::1,
+          tag >>> 21::7>>
     end
   end
 end

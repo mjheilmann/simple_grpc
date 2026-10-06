@@ -49,7 +49,10 @@ defmodule SimpleGrpc.IsolatedPlugTest do
     %{grpcurl: grpcurl, port_a: port_a, port_b: port_b}
   end
 
-  test "port A only hosts and reflects ServiceA (isolated from ServiceB)", %{grpcurl: grpcurl, port_a: port_a} do
+  test "port A only hosts and reflects ServiceA (isolated from ServiceB)", %{
+    grpcurl: grpcurl,
+    port_a: port_a
+  } do
     {output_a, 0} =
       System.cmd(grpcurl, ["-plaintext", "127.0.0.1:#{port_a}", "list"], stderr_to_stdout: true)
 
@@ -72,7 +75,10 @@ defmodule SimpleGrpc.IsolatedPlugTest do
     assert call_out =~ "ServiceA: Hello A"
   end
 
-  test "port B only hosts and reflects ServiceB (isolated from ServiceA)", %{grpcurl: grpcurl, port_b: port_b} do
+  test "port B only hosts and reflects ServiceB (isolated from ServiceA)", %{
+    grpcurl: grpcurl,
+    port_b: port_b
+  } do
     {output_b, 0} =
       System.cmd(grpcurl, ["-plaintext", "127.0.0.1:#{port_b}", "list"], stderr_to_stdout: true)
 

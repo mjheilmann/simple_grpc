@@ -7,6 +7,7 @@ defmodule SimpleGrpc.Client.Headers do
   Normalizes headers from maps, keyword lists, or lists of 2-tuples into a list of `{"header-name", "header-value"}` string tuples.
   """
   def normalize(nil), do: []
+
   def normalize(headers) when is_map(headers) do
     headers
     |> Enum.map(fn {k, v} -> {normalize_key(k), to_string(v)} end)
@@ -92,6 +93,7 @@ defmodule SimpleGrpc.Client.Headers do
 
   def format_grpc_timeout(timeout) when is_binary(timeout) do
     trimmed = String.trim(timeout)
+
     if Regex.match?(~r/^\d+[HMSEumn]$/, trimmed) do
       trimmed
     else

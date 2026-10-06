@@ -68,7 +68,18 @@ defmodule SimpleGrpc.Plug do
 
     if encoding not in [nil, "", "identity", "gzip"] do
       emit_telemetry_start(conn, path, nil, start_time)
-      emit_telemetry_stop(conn, path, nil, nil, nil, 12, "unsupported grpc-encoding: #{encoding}", start_time)
+
+      emit_telemetry_stop(
+        conn,
+        path,
+        nil,
+        nil,
+        nil,
+        12,
+        "unsupported grpc-encoding: #{encoding}",
+        start_time
+      )
+
       send_trailers_only(conn, 12, "unsupported grpc-encoding: #{encoding}")
     else
       route_lookup =
@@ -91,7 +102,18 @@ defmodule SimpleGrpc.Plug do
             conn
           else
             emit_telemetry_start(conn, path, nil, start_time)
-            emit_telemetry_stop(conn, path, nil, nil, nil, 12, "unknown service or method: #{path}", start_time)
+
+            emit_telemetry_stop(
+              conn,
+              path,
+              nil,
+              nil,
+              nil,
+              12,
+              "unknown service or method: #{path}",
+              start_time
+            )
+
             send_trailers_only(conn, 12, "unknown service or method: #{path}")
           end
       end
@@ -249,7 +271,17 @@ defmodule SimpleGrpc.Plug do
             else
               case Protobuf.encode(route.output_message, resp_data, route.schema) do
                 {:ok, resp_bytes} ->
-                  emit_telemetry_stop(conn, path, route, initial_payload_for_telemetry, resp_data, 0, "", start_time)
+                  emit_telemetry_stop(
+                    conn,
+                    path,
+                    route,
+                    initial_payload_for_telemetry,
+                    resp_data,
+                    0,
+                    "",
+                    start_time
+                  )
+
                   should_compress = should_compress_response?(conn)
                   framed_response = frame_grpc_message(resp_bytes, compress: should_compress)
                   send_grpc_response(conn, framed_response, 0, "", should_compress)
@@ -261,7 +293,18 @@ defmodule SimpleGrpc.Plug do
 
           {:error, status_code, message} ->
             msg_str = to_string(message)
-            emit_telemetry_stop(conn, path, route, initial_payload_for_telemetry, nil, status_code, msg_str, start_time)
+
+            emit_telemetry_stop(
+              conn,
+              path,
+              route,
+              initial_payload_for_telemetry,
+              nil,
+              status_code,
+              msg_str,
+              start_time
+            )
+
             send_trailers_only(conn, status_code, msg_str)
         end
       rescue
@@ -283,7 +326,11 @@ defmodule SimpleGrpc.Plug do
 
         kind, reason ->
           formatted = Exception.format(kind, reason, __STACKTRACE__)
-          Logger.error("[SimpleGrpc.Plug] Uncaught #{kind} in gRPC handler for #{path}:\n#{formatted}")
+
+          Logger.error(
+            "[SimpleGrpc.Plug] Uncaught #{kind} in gRPC handler for #{path}:\n#{formatted}"
+          )
+
           emit_telemetry_exception(conn, path, route, kind, reason, __STACKTRACE__, start_time)
           send_trailers_only(conn, 13, "Internal server error: #{inspect(reason)}")
       end
@@ -331,6 +378,7 @@ defmodule SimpleGrpc.Plug do
 
   defp send_streaming_grpc_response(conn, route, resp_enumerable, start_time) do
     path = conn.request_path
+
     trailers = [
       {"grpc-status", "0"},
       {"grpc-message", ""}
@@ -412,7 +460,16 @@ defmodule SimpleGrpc.Plug do
     :telemetry.execute([:simple_grpc, :call, :start], measurements, meta)
   end
 
-  defp emit_telemetry_stop(conn, path, route, req_map, resp_data, status_code, status_message, start_time) do
+  defp emit_telemetry_stop(
+         conn,
+         path,
+         route,
+         req_map,
+         resp_data,
+         status_code,
+         status_message,
+         start_time
+       ) do
     stop_time = System.monotonic_time()
     duration = stop_time - start_time
 

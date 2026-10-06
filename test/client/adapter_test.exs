@@ -61,7 +61,9 @@ defmodule SimpleGrpc.Client.AdapterTest do
     test "connects and sends unary RPC via in-memory Plug", %{schema: schema} do
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
-      req_bytes = Protobuf.encode!("StreamRequest", %{message: "DirectPlug", sequence: 10}, schema)
+      req_bytes =
+        Protobuf.encode!("StreamRequest", %{message: "DirectPlug", sequence: 10}, schema)
+
       path = "/streaming.StreamingService/UnaryCall"
 
       {:ok, resp_bytes, headers, _trailers} = SimpleGrpc.Client.send_unary(conn, path, req_bytes)
@@ -76,10 +78,13 @@ defmodule SimpleGrpc.Client.AdapterTest do
     test "sends streaming request via in-memory Plug", %{schema: schema} do
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
-      req_bytes = Protobuf.encode!("StreamRequest", %{message: "StreamPing", sequence: 100}, schema)
+      req_bytes =
+        Protobuf.encode!("StreamRequest", %{message: "StreamPing", sequence: 100}, schema)
+
       path = "/streaming.StreamingService/ServerStreamingCall"
 
-      {:ok, resp_stream, _headers, _trailers} = SimpleGrpc.Client.send_stream(conn, path, req_bytes)
+      {:ok, resp_stream, _headers, _trailers} =
+        SimpleGrpc.Client.send_stream(conn, path, req_bytes)
 
       items =
         resp_stream
@@ -99,7 +104,9 @@ defmodule SimpleGrpc.Client.AdapterTest do
     test "connects over HTTP/2 and sends unary RPC", %{schema: schema, port: port} do
       {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{port}", adapter: :mint)
 
-      req_bytes = Protobuf.encode!("StreamRequest", %{message: "NetworkMint", sequence: 42}, schema)
+      req_bytes =
+        Protobuf.encode!("StreamRequest", %{message: "NetworkMint", sequence: 42}, schema)
+
       path = "/streaming.StreamingService/UnaryCall"
 
       {:ok, resp_bytes, _headers, _trailers} = SimpleGrpc.Client.send_unary(conn, path, req_bytes)
@@ -115,10 +122,13 @@ defmodule SimpleGrpc.Client.AdapterTest do
     test "connects over HTTP/2 and streams response chunks", %{schema: schema, port: port} do
       {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{port}", adapter: :mint)
 
-      req_bytes = Protobuf.encode!("StreamRequest", %{message: "MintStream", sequence: 200}, schema)
+      req_bytes =
+        Protobuf.encode!("StreamRequest", %{message: "MintStream", sequence: 200}, schema)
+
       path = "/streaming.StreamingService/ServerStreamingCall"
 
-      {:ok, resp_stream, _headers, _trailers} = SimpleGrpc.Client.send_stream(conn, path, req_bytes)
+      {:ok, resp_stream, _headers, _trailers} =
+        SimpleGrpc.Client.send_stream(conn, path, req_bytes)
 
       items =
         resp_stream
@@ -162,11 +172,16 @@ defmodule SimpleGrpc.Client.AdapterTest do
       {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{port}", adapter: :mint)
 
       large_message = String.duplicate("A", 150_000)
-      req_bytes = Protobuf.encode!("StreamRequest", %{message: large_message, sequence: 1}, schema)
+
+      req_bytes =
+        Protobuf.encode!("StreamRequest", %{message: large_message, sequence: 1}, schema)
+
       assert byte_size(req_bytes) > 65_535
 
       path = "/streaming.StreamingService/UnaryCall"
-      {:ok, resp_bytes, _headers, _trailers} = SimpleGrpc.Client.send_unary(conn, path, req_bytes, timeout: 15_000)
+
+      {:ok, resp_bytes, _headers, _trailers} =
+        SimpleGrpc.Client.send_unary(conn, path, req_bytes, timeout: 15_000)
 
       {:ok, decoded} = Protobuf.decode("StreamResponse", resp_bytes, schema)
       assert decoded.result == "Echo: " <> large_message

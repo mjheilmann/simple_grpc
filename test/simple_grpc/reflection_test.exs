@@ -18,23 +18,45 @@ defmodule SimpleGrpc.ReflectionTest do
       assert byte_size(fdp_bytes) > 0
 
       # Decode back using descriptor schema to verify fields
-      decoded = Protobuf.decode!(Descriptor.__info__(:functions) |> List.first() |> then(fn _ ->
-        # Decode using descriptor schema
-        schema_proto = %SimpleGrpc.Schema.Message{
-          name: "FileDescriptorProto",
-          fields: [
-            %SimpleGrpc.Schema.Field{name: :name, number: 1, type: "string", kind: :field},
-            %SimpleGrpc.Schema.Field{name: :package, number: 2, type: "string", kind: :field},
-            %SimpleGrpc.Schema.Field{name: :syntax, number: 12, type: "string", kind: :field}
-          ],
-          fields_by_number: %{
-            1 => %SimpleGrpc.Schema.Field{name: :name, number: 1, type: "string", kind: :field},
-            2 => %SimpleGrpc.Schema.Field{name: :package, number: 2, type: "string", kind: :field},
-            12 => %SimpleGrpc.Schema.Field{name: :syntax, number: 12, type: "string", kind: :field}
-          }
-        }
-        schema_proto
-      end), fdp_bytes)
+      decoded =
+        Protobuf.decode!(
+          Descriptor.__info__(:functions)
+          |> List.first()
+          |> then(fn _ ->
+            # Decode using descriptor schema
+            schema_proto = %SimpleGrpc.Schema.Message{
+              name: "FileDescriptorProto",
+              fields: [
+                %SimpleGrpc.Schema.Field{name: :name, number: 1, type: "string", kind: :field},
+                %SimpleGrpc.Schema.Field{name: :package, number: 2, type: "string", kind: :field},
+                %SimpleGrpc.Schema.Field{name: :syntax, number: 12, type: "string", kind: :field}
+              ],
+              fields_by_number: %{
+                1 => %SimpleGrpc.Schema.Field{
+                  name: :name,
+                  number: 1,
+                  type: "string",
+                  kind: :field
+                },
+                2 => %SimpleGrpc.Schema.Field{
+                  name: :package,
+                  number: 2,
+                  type: "string",
+                  kind: :field
+                },
+                12 => %SimpleGrpc.Schema.Field{
+                  name: :syntax,
+                  number: 12,
+                  type: "string",
+                  kind: :field
+                }
+              }
+            }
+
+            schema_proto
+          end),
+          fdp_bytes
+        )
 
       assert decoded.package == "streaming"
       assert decoded.syntax == "proto3"
@@ -102,7 +124,10 @@ defmodule SimpleGrpc.ReflectionTest do
 
     test "respects only: filter option" do
       req_list = %{list_services: ""}
-      assert {:ok, resp} = Server.server_reflection_info(req_list, nil, only: ["streaming.StreamingService"])
+
+      assert {:ok, resp} =
+               Server.server_reflection_info(req_list, nil, only: ["streaming.StreamingService"])
+
       service_names = Enum.map(resp.list_services_response.service, & &1.name)
 
       assert "streaming.StreamingService" in service_names
@@ -111,7 +136,12 @@ defmodule SimpleGrpc.ReflectionTest do
 
     test "respects except: filter option" do
       req_list = %{list_services: ""}
-      assert {:ok, resp} = Server.server_reflection_info(req_list, nil, except: ["streaming.MultiStreamService"])
+
+      assert {:ok, resp} =
+               Server.server_reflection_info(req_list, nil,
+                 except: ["streaming.MultiStreamService"]
+               )
+
       service_names = Enum.map(resp.list_services_response.service, & &1.name)
 
       assert "streaming.StreamingService" in service_names

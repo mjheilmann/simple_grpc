@@ -40,7 +40,10 @@ defmodule SimpleGrpc.Parser do
       Regex.match?(~r/.*syntax\s*=\s*["']proto2["'].*/, proto_contents) ->
         {:error, "invalid proto file, proto2 syntax is not supported"}
 
-      Regex.match?(~r/.*(?:syntax\s*=\s*["']editions["']|edition\s*=\s*["'][^"']+["']).*/, proto_contents) ->
+      Regex.match?(
+        ~r/.*(?:syntax\s*=\s*["']editions["']|edition\s*=\s*["'][^"']+["']).*/,
+        proto_contents
+      ) ->
         {:error, "invalid proto file, protobuf editions are not supported"}
 
       captures = Regex.named_captures(~r/.*syntax\s*=\s*["'](?<ver>[^"']+)["'].*/, proto_contents) ->

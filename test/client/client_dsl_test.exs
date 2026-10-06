@@ -59,8 +59,18 @@ defmodule SimpleGrpc.ClientDSLTest do
       req = StreamingClient.StreamRequest.new(message: "StructTest", sequence: 99)
       assert req == %StreamingClient.StreamRequest{message: "StructTest", sequence: 99}
 
-      resp = StreamingClient.build_response(:unary_call, result: "BuiltResp", sequence: 100, is_final: true)
-      assert resp == %StreamingClient.StreamResponse{result: "BuiltResp", sequence: 100, is_final: true}
+      resp =
+        StreamingClient.build_response(:unary_call,
+          result: "BuiltResp",
+          sequence: 100,
+          is_final: true
+        )
+
+      assert resp == %StreamingClient.StreamResponse{
+               result: "BuiltResp",
+               sequence: 100,
+               is_final: true
+             }
 
       assert StreamingClient.__service_name__() == "StreamingService"
       assert StreamingClient.grpc_path(:unary_call) == "/streaming.StreamingService/UnaryCall"
@@ -73,6 +83,7 @@ defmodule SimpleGrpc.ClientDSLTest do
 
       # 1. Map/keyword argument
       {:ok, resp} = StreamingClient.unary_call(conn, %{message: "HelloPlug", sequence: 10})
+
       assert resp == %StreamingClient.StreamResponse{
                result: "Echo: HelloPlug",
                sequence: 11,
@@ -81,6 +92,7 @@ defmodule SimpleGrpc.ClientDSLTest do
 
       # 2. Bang call
       resp_bang = StreamingClient.unary_call!(conn, message: "HelloBang", sequence: 20)
+
       assert resp_bang == %StreamingClient.StreamResponse{
                result: "Echo: HelloBang",
                sequence: 21,
@@ -91,7 +103,8 @@ defmodule SimpleGrpc.ClientDSLTest do
     test "Server Streaming RPC returns typed struct stream" do
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
 
-      {:ok, resp_stream} = StreamingClient.server_streaming_call(conn, %{message: "StreamPing", sequence: 100})
+      {:ok, resp_stream} =
+        StreamingClient.server_streaming_call(conn, %{message: "StreamPing", sequence: 100})
 
       items = Enum.to_list(resp_stream)
       assert length(items) == 3
@@ -168,7 +181,8 @@ defmodule SimpleGrpc.ClientDSLTest do
     test "Server Streaming RPC over HTTP/2", %{port: port} do
       {:ok, conn} = SimpleGrpc.Client.connect("127.0.0.1:#{port}", adapter: :mint)
 
-      {:ok, resp_stream} = StreamingClient.server_streaming_call(conn, %{message: "MintStream", sequence: 200})
+      {:ok, resp_stream} =
+        StreamingClient.server_streaming_call(conn, %{message: "MintStream", sequence: 200})
 
       items = Enum.to_list(resp_stream)
       assert length(items) == 3
