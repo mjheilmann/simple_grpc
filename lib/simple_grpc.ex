@@ -9,7 +9,9 @@ defmodule SimpleGrpc do
   - **In-Memory Testing**: Direct `:plug` adapter for zero-overhead, socket-free client-to-server integration testing.
   - **gRPC Server Reflection**: Dynamic reflection client and server (`v1` and `v1alpha`).
 
-  ## Server Quickstart
+  ## Server Documentation (`SimpleGrpc.Server`)
+  To implement a gRPC server, use `SimpleGrpc.Server`:
+
       defmodule GreeterServer do
         use SimpleGrpc.Server,
           server_file: "priv/protos/greeter.proto"
@@ -22,7 +24,12 @@ defmodule SimpleGrpc do
       # In your supervision tree or Bandit endpoint:
       {Bandit, plug: {SimpleGrpc.Plug, services: [GreeterServer], reflection: true}, port: 50051}
 
-  ## Typed Client Quickstart
+  See `SimpleGrpc.Server` for detailed options, streaming handlers, and lifecycle hooks.
+
+  ## Client Documentation (`SimpleGrpc.Client`)
+  To interact with a gRPC server, use `SimpleGrpc.Client`:
+
+  ### 1. Strongly Typed Client
       defmodule GreeterClient do
         use SimpleGrpc.Client,
           client_file: "priv/protos/greeter.proto"
@@ -31,16 +38,18 @@ defmodule SimpleGrpc do
       {:ok, conn} = SimpleGrpc.Client.connect("localhost:50051", adapter: :mint)
       {:ok, response} = GreeterClient.say_hello(conn, %{name: "Alice"})
 
-  ## In-Memory Testing (Zero TCP / Zero Sockets)
+  ### 2. In-Memory Testing (Zero TCP / Zero Sockets)
       {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
       {:ok, response} = GreeterClient.say_hello(conn, %{name: "Test"})
 
-  ## Dynamic Reflection Client
+  ### 3. Dynamic Reflection Client
       {:ok, client} = SimpleGrpc.Client.connect("localhost:50051", reflection: true)
       {:ok, response} = SimpleGrpc.Client.call(client, "greeter.Greeter/SayHello", %{name: "Dynamic"})
+
+  See `SimpleGrpc.Client` for streaming calls, transport adapters, headers, and timeout options.
   """
 
-  alias SimpleGrpc.{Registry, Schema, Protobuf}
+  alias SimpleGrpc.{Registry, Protobuf}
 
   @doc """
   Connects to a gRPC server endpoint. Delegates to `SimpleGrpc.Client.connect/2`.
@@ -53,19 +62,9 @@ defmodule SimpleGrpc do
   defdelegate call(conn, rpc_or_path, payload, opts \\ []), to: SimpleGrpc.Client
 
   @doc """
-  Registers a schema and its handlers with the dynamic gRPC registry.
+  Registers a schema or server module and its handlers with the dynamic gRPC registry. Delegates to `SimpleGrpc.Registry.register_service/2`.
   """
-  def register_service(schema_or_module, handlers \\ nil)
-
-  def register_service(%Schema{} = schema, handlers) do
-    Registry.register_service(schema, handlers)
-  end
-
-  def register_service(server_module, handlers) when is_atom(server_module) do
-    schema = server_module.__schema__()
-    handler_spec = handlers || server_module
-    Registry.register_service(schema, handler_spec)
-  end
+  defdelegate register_service(schema_or_module, handlers \\ nil), to: Registry
 
   @doc """
   Registers or replaces an individual RPC route dynamically at runtime.

@@ -1,7 +1,62 @@
 defmodule SimpleGrpc.Server do
   @moduledoc """
   Generates gRPC service implementation internals, in-module handler plumbing,
-  and HTTP route matching for the using module based on a `.proto` file.
+  and HTTP route matching for the using module based on a `.proto` file or `%SimpleGrpc.Schema{}` struct.
+
+  ## Features
+  - **Zero `protoc` dependency**: Parses `.proto` files at compile time in pure Elixir.
+  - **Typed Message Structs**: Synthesizes nested message modules and structs under the server module namespace.
+  - **Flexible Handlers**: Supports in-module functions (with arity 1 or 2), external module/MFA references, and dynamic closures.
+  - **Streaming Support**: Full HTTP/2 server streaming, client streaming, and bidirectional streaming.
+  - **Seamless Plug Integration**: Plugs directly into `SimpleGrpc.Plug` on top of Bandit or Cowboy.
+
+  ## Usage Example
+  Define a service module with `use SimpleGrpc.Server`:
+
+      defmodule MyApp.GreeterServer do
+        use SimpleGrpc.Server,
+          server_file: "priv/protos/greeter.proto"
+
+        # Unary RPC handler: accepts (request, stream) or (request)
+        def say_hello(req, _stream) do
+          {:ok, %{message: "Hello, " <> req.name}}
+        end
+
+        # Server streaming RPC: returns a Stream or List of response maps/structs
+        def lots_of_replies(req, _stream) do
+          stream = Stream.map(1..req.count, fn i ->
+            %{message: "Reply \#{i} to \#{req.name}"}
+          end)
+          {:ok, stream}
+        end
+
+        # Client streaming RPC: accepts a Stream of incoming requests
+        def lots_of_greetings(req_stream, _stream) do
+          names = Enum.map(req_stream, & &1.name)
+          {:ok, %{summary: "Greetings to \#{Enum.join(names, ", ")}"}}
+        end
+
+        # Bidirectional streaming RPC: accepts req_stream and returns resp_stream
+        def bidi_chat(req_stream, _stream) do
+          resp_stream = Stream.map(req_stream, fn req ->
+            %{response: "Echo: " <> req.message}
+          end)
+          {:ok, resp_stream}
+        end
+      end
+
+  ## Server Options (`use SimpleGrpc.Server`)
+  - `:server_file` - Path to the `.proto` file defining the service.
+  - `:service` - (optional) Name of the target service in the `.proto` if multiple services exist.
+  - `:handlers` - (optional) Keyword list or map delegating specific RPCs to custom handler functions or modules.
+
+  ## Handler Return Values
+  Handlers can return:
+  - `{:ok, response_map_or_struct}` - Successful response.
+  - `{:ok, stream_or_enumerable}` - Successful streaming response.
+  - `{:error, code, message}` - gRPC error with integer status code (e.g. `{:error, 5, "Not found"}`).
+  - `{:error, message}` - gRPC error with default code `2` (`:unknown`).
+  - Plain map or struct - Automatically treated as `{:ok, value}`.
   """
 
   alias SimpleGrpc.Server.RPC

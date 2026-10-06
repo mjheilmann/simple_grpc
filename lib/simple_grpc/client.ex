@@ -1,6 +1,65 @@
 defmodule SimpleGrpc.Client do
   @moduledoc """
-  gRPC Client for SimpleGrpc supporting pure-Elixir HTTP/2 (via Mint) and direct in-memory testing (via Plug).
+  Pure-Elixir gRPC client supporting strongly-typed code generation, dynamic reflection-based invocations, HTTP/2 network transport, and direct in-memory testing.
+
+  ## Features
+  - **Typed Client DSL**: Generate compile-time client modules with autocomplete, typed request/response structs, and bang variants using `use SimpleGrpc.Client`.
+  - **Dynamic Invocations**: Call any gRPC method dynamically with `SimpleGrpc.Client.call/4` using server reflection or a runtime `%SimpleGrpc.Schema{}`.
+  - **Transport Adapters**:
+    - `SimpleGrpc.Client.Adapters.Mint` (`:mint`) - Pure-Elixir HTTP/2 transport over TCP/TLS with connection pooling and stream multiplexing.
+    - `SimpleGrpc.Client.Adapters.Plug` (`:plug`) - Zero-overhead, in-memory transport dispatching directly to `SimpleGrpc.Plug` without socket/network overhead.
+  - **Streaming Support**: Full support for server streaming (as lazy `Stream.resource` Elixir streams), client streaming (from Enumerable/Stream inputs), and bidirectional streaming.
+  - **Observability**: Built-in Telemetry events (`[:simple_grpc, :client, :start | :stop | :exception]`).
+
+  ## Typed Client Usage
+  Define a client module by passing a `.proto` file path or a `%SimpleGrpc.Schema{}` struct:
+
+      defmodule MyApp.GreeterClient do
+        use SimpleGrpc.Client,
+          client_file: "priv/protos/greeter.proto"
+      end
+
+  ### Making Calls
+      # 1. Connect to server
+      {:ok, conn} = SimpleGrpc.Client.connect("localhost:50051", adapter: :mint)
+
+      # 2. Invoke unary RPC
+      {:ok, response} = MyApp.GreeterClient.say_hello(conn, %{name: "Alice"})
+      # Or raising on error:
+      response = MyApp.GreeterClient.say_hello!(conn, %{name: "Alice"})
+
+      # 3. Server streaming RPC (returns a lazy Elixir Stream)
+      {:ok, stream} = MyApp.GreeterClient.lots_of_replies(conn, %{name: "Alice"})
+      Enum.each(stream, fn reply -> IO.puts(reply.message) end)
+
+      # 4. Client streaming RPC (accepts a List or Stream)
+      requests = [%{name: "Alice"}, %{name: "Bob"}]
+      {:ok, summary} = MyApp.GreeterClient.lots_of_greetings(conn, requests)
+
+      # 5. Bidirectional streaming RPC
+      input_stream = Stream.map(1..10, fn i -> %{message: "Msg \#{i}"} end)
+      {:ok, output_stream} = MyApp.GreeterClient.bidi_stream(conn, input_stream)
+
+  ## In-Memory Testing (Plug Adapter)
+  You can test your gRPC services directly in-memory without starting an HTTP/2 TCP listener:
+
+      {:ok, conn} = SimpleGrpc.Client.connect(MyGrpcPlug, adapter: :plug)
+      {:ok, response} = MyApp.GreeterClient.say_hello(conn, %{name: "Test"})
+
+  ## Dynamic Reflection Client
+  Connect to any reflection-enabled gRPC server without local `.proto` files:
+
+      {:ok, conn} = SimpleGrpc.Client.connect("localhost:50051", reflection: true)
+      {:ok, response} = SimpleGrpc.Client.call(conn, "greeter.Greeter/SayHello", %{name: "Dynamic"})
+
+  ## Connection Options (`connect/2`)
+  - `:adapter` - `:mint` (default for network targets) or `:plug` (default for Plug modules).
+  - `:reflection` - (boolean) Query server reflection upon connecting to populate schema metadata.
+  - `:schema` - Pre-loaded `%SimpleGrpc.Schema{}` struct or proto file path.
+  - `:scheme` - `:http` (default) or `:https`.
+  - `:timeout` - Request timeout in milliseconds (default: `5000`).
+  - `:headers` - Additional default request headers / metadata (e.g. `[{"authorization", "Bearer token"}]`).
+  - `:plug_opts` - Options passed to `SimpleGrpc.Plug.init/1` when using `:plug` adapter.
   """
 
   alias SimpleGrpc.Client.Conn

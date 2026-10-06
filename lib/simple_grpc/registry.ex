@@ -13,13 +13,20 @@ defmodule SimpleGrpc.Registry do
   @persistent_key {__MODULE__, :routes}
 
   @doc """
-  Registers all RPCs defined in a `SimpleGrpc.Schema` with their corresponding handlers.
+  Registers all RPCs defined in a `SimpleGrpc.Schema` or server module with their corresponding handlers.
+
+  `schema_or_module` can be:
+  - A `%SimpleGrpc.Schema{}` struct
+  - A server module atom implementing `__schema__/0` (e.g. `MyServer`)
 
   `handlers` can be:
+  - `nil` (defaults to `schema_or_module` when passing a server module atom)
   - A module (e.g. `MyServer`)
   - A map/keyword list of `%{rpc_name => handler}`
   - A single function `fn (rpc_name, req, stream) -> resp end` or `fn (req, stream) -> resp end`
   """
+  def register_service(schema_or_module, handlers \\ nil)
+
   def register_service(%Schema{} = schema, handlers) do
     {:ok, routes} = generate_routes(schema, handlers)
 
@@ -27,6 +34,12 @@ defmodule SimpleGrpc.Registry do
     new_routes = Map.merge(current_routes, routes)
     put_all_routes(new_routes)
     {:ok, Map.keys(routes)}
+  end
+
+  def register_service(server_module, handlers) when is_atom(server_module) do
+    schema = server_module.__schema__()
+    handler_spec = handlers || server_module
+    register_service(schema, handler_spec)
   end
 
   @doc """
