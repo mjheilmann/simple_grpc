@@ -267,7 +267,7 @@ defmodule SimpleGrpc.Plug do
         case dispatch_result do
           {:ok, resp_data} ->
             if route.response_stream or is_enumerable_stream(resp_data, route) do
-              send_streaming_grpc_response(conn, route, resp_data, start_time)
+              send_streaming_grpc_response(conn, route, resp_data, start_time, deadline_ms)
             else
               case Protobuf.encode(route.output_message, resp_data, route.schema) do
                 {:ok, resp_bytes} ->
@@ -376,7 +376,7 @@ defmodule SimpleGrpc.Plug do
     )
   end
 
-  defp send_streaming_grpc_response(conn, route, resp_enumerable, start_time) do
+  defp send_streaming_grpc_response(conn, route, resp_enumerable, start_time, deadline_ms) do
     path = conn.request_path
 
     trailers = [
@@ -385,6 +385,13 @@ defmodule SimpleGrpc.Plug do
     ]
 
     should_compress = should_compress_response?(conn)
+
+    deadline_end_time =
+      if is_integer(deadline_ms) and deadline_ms > 0 do
+        start_time + System.convert_time_unit(deadline_ms, :millisecond, :native)
+      else
+        nil
+      end
 
     case conn.adapter do
       {Bandit.Adapter,
@@ -400,6 +407,10 @@ defmodule SimpleGrpc.Plug do
 
         conn =
           Enum.reduce(resp_enumerable, conn, fn item, conn_acc ->
+            if deadline_end_time && System.monotonic_time() > deadline_end_time do
+              throw({:error, 4, "deadline exceeded during streaming"})
+            end
+
             case Protobuf.encode(route.output_message, item, route.schema) do
               {:ok, resp_bytes} ->
                 framed = frame_grpc_message(resp_bytes, compress: should_compress)
@@ -420,6 +431,10 @@ defmodule SimpleGrpc.Plug do
       _other ->
         body =
           Enum.reduce(resp_enumerable, <<>>, fn item, acc ->
+            if deadline_end_time && System.monotonic_time() > deadline_end_time do
+              throw({:error, 4, "deadline exceeded during streaming"})
+            end
+
             case Protobuf.encode(route.output_message, item, route.schema) do
               {:ok, resp_bytes} ->
                 framed = frame_grpc_message(resp_bytes, compress: should_compress)

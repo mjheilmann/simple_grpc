@@ -151,5 +151,37 @@ defmodule SimpleGrpc.DeadlineTest do
       assert resp.result == "Done after 10ms"
       Client.close(conn)
     end
+
+    test "supports client :deadline option using DateTime", %{port: port} do
+      {:ok, conn} = Client.connect("127.0.0.1:#{port}", adapter: :mint)
+
+      # 100ms in the future
+      future_deadline = DateTime.add(DateTime.utc_now(), 100, :millisecond)
+
+      # Request sleeps for 300ms, should exceed deadline
+      assert {:error, 4, msg} =
+               SlowClient.unary_call(
+                 conn,
+                 %{message: "DeadlineDT", sequence: 300},
+                 deadline: future_deadline
+               )
+
+      assert msg =~ "deadline exceeded"
+      Client.close(conn)
+    end
+
+    test "SimpleGrpc.deadline/1 and remaining_timeout/2 helpers extract deadline from conn" do
+      plug_conn =
+        Plug.Test.conn(:post, "/test")
+        |> Plug.Conn.put_req_header("grpc-timeout", "2000m")
+
+      deadline_dt = SimpleGrpc.deadline(plug_conn)
+      assert %DateTime{} = deadline_dt
+      assert DateTime.diff(deadline_dt, DateTime.utc_now(), :millisecond) in 1500..2500
+
+      assert SimpleGrpc.remaining_timeout(plug_conn) == 2000
+      assert SimpleGrpc.remaining_timeout(plug_conn, :second) == 2
+      assert SimpleGrpc.remaining_timeout(plug_conn, :microsecond) == 2_000_000
+    end
   end
 end

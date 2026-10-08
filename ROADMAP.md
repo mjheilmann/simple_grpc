@@ -16,10 +16,11 @@ This roadmap outlines key architectural enhancements and features planned for `S
   - [x] Client keepalive: periodically send HTTP/2 `PING` frames on idle connections to prevent NAT/ALB/NLB connection dropouts.
   - [x] Server keepalive: respond to PINGs via Bandit/HTTP2 and support round-trip latency measurements.
 
-- [ ] **3. Deadline & Timeout Propagation**
-  - [ ] Server: Parse `grpc-timeout` header (e.g., `1000m`, `10S`) and bound handler execution to the deadline.
-  - [ ] Server: Automatically cancel the underlying handler `Task` or abort stream consumption if the client disconnects or deadline expires.
-  - [ ] Client: Calculate remaining deadline and forward `grpc-timeout` headers on downstream client calls.
+- [x] **3. Deadline & Timeout Propagation**
+  - [x] Server: Parse `grpc-timeout` header (e.g., `1000m`, `10S`) and bound handler execution to the deadline.
+  - [x] Server: Automatically cancel the underlying handler `Task` and enforce deadlines on streaming emissions.
+  - [x] Client: Calculate remaining deadline and forward `grpc-timeout` headers via `:deadline` and `:timeout` options.
+  - [x] Helpers: Provide `SimpleGrpc.deadline/1` and `SimpleGrpc.remaining_timeout/2` for server handler introspection.
 
 - [ ] **4. Server Graceful Shutdown & Drain**
   - [ ] Trap exit / handle SIGTERM in the server supervision tree.

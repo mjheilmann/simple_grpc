@@ -55,18 +55,32 @@ defmodule SimpleGrpc.Client.Headers do
         merged_map
       end
 
-    # Check for timeout option
+    # Check for deadline or timeout option
     merged_map =
-      case Keyword.get(opts, :timeout) do
-        nil ->
+      cond do
+        Map.has_key?(merged_map, "grpc-timeout") ->
           merged_map
 
-        timeout ->
-          if Map.has_key?(merged_map, "grpc-timeout") do
-            merged_map
-          else
-            Map.put(merged_map, "grpc-timeout", {"grpc-timeout", format_grpc_timeout(timeout)})
-          end
+        deadline = Keyword.get(opts, :deadline) ->
+          remaining_ms =
+            case deadline do
+              %DateTime{} ->
+                max(DateTime.diff(deadline, DateTime.utc_now(), :millisecond), 0)
+
+              val when is_integer(val) and val >= 0 ->
+                val
+
+              _ ->
+                5000
+            end
+
+          Map.put(merged_map, "grpc-timeout", {"grpc-timeout", format_grpc_timeout(remaining_ms)})
+
+        timeout = Keyword.get(opts, :timeout) ->
+          Map.put(merged_map, "grpc-timeout", {"grpc-timeout", format_grpc_timeout(timeout)})
+
+        true ->
+          merged_map
       end
 
     Map.values(merged_map)

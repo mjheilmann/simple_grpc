@@ -115,4 +115,53 @@ defmodule SimpleGrpc do
   Enables the canonical gRPC Health Checking service (`grpc.health.v1.Health`).
   """
   defdelegate enable_health(opts \\ []), to: SimpleGrpc.Health, as: :register
+
+  @doc """
+  Returns the deadline `DateTime` for the active incoming request, or `nil` if no `grpc-timeout` header was provided.
+  """
+  def deadline(%Plug.Conn{} = conn) do
+    case Plug.Conn.get_req_header(conn, "grpc-timeout") do
+      [timeout_header | _] ->
+        case SimpleGrpc.Client.Headers.parse_grpc_timeout(timeout_header) do
+          {:ok, ms} ->
+            DateTime.add(DateTime.utc_now(), ms, :millisecond)
+
+          _ ->
+            nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def deadline(_), do: nil
+
+  @doc """
+  Returns the remaining milliseconds before the deadline for the active request expires.
+  Returns `nil` if no deadline was set, or `0` if the deadline has already passed.
+  """
+  def remaining_timeout(conn, unit \\ :millisecond)
+
+  def remaining_timeout(%Plug.Conn{} = conn, unit) do
+    case Plug.Conn.get_req_header(conn, "grpc-timeout") do
+      [timeout_header | _] ->
+        case SimpleGrpc.Client.Headers.parse_grpc_timeout(timeout_header) do
+          {:ok, ms} ->
+            case unit do
+              :millisecond -> ms
+              :second -> div(ms, 1000)
+              :microsecond -> ms * 1000
+            end
+
+          _ ->
+            nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def remaining_timeout(_, _), do: nil
 end
