@@ -28,6 +28,7 @@ defmodule SimpleGrpc.MixProject do
       {:bandit, "~> 1.0"},
       {:plug, "~> 1.16"},
       {:mint, "~> 1.6"},
+      {:nimble_pool, "~> 1.0"},
       {:castore, "~> 1.0", optional: true},
       {:telemetry, "~> 1.0 or ~> 1.2"}
     ]

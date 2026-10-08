@@ -538,23 +538,75 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
 
   @impl true
   def connect(target, opts \\ []) do
-    case Connection.start_link(target, opts) do
-      {:ok, pid} ->
-        {:ok, pid}
+    use_pool = Keyword.get(opts, :pool, true)
 
-      {:error, reason} ->
-        {:error, reason}
+    if use_pool do
+      case SimpleGrpc.Client.Pool.start_link(target, opts) do
+        {:ok, pool_pid} ->
+          {:ok, {:pool, pool_pid}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      case Connection.start_link(target, opts) do
+        {:ok, pid} ->
+          {:ok, {:conn, pid}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
   @impl true
+  def send_unary({:pool, pool_pid}, path, payload, opts) do
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+
+    SimpleGrpc.Client.Pool.checkout(
+      pool_pid,
+      fn conn_pid ->
+        send_unary_conn(conn_pid, path, payload, opts)
+      end,
+      timeout + 2000
+    )
+  end
+
+  def send_unary({:conn, conn_pid}, path, payload, opts) do
+    send_unary_conn(conn_pid, path, payload, opts)
+  end
+
   def send_unary(pid, path, payload, opts) when is_pid(pid) do
+    send_unary_conn(pid, path, payload, opts)
+  end
+
+  defp send_unary_conn(pid, path, payload, opts) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     GenServer.call(pid, {:send_unary, path, payload, opts}, timeout + 2000)
   end
 
   @impl true
+  def send_stream({:pool, pool_pid}, path, request_data, opts) do
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+
+    SimpleGrpc.Client.Pool.checkout(
+      pool_pid,
+      fn conn_pid ->
+        send_stream_conn(conn_pid, path, request_data, opts)
+      end,
+      timeout + 2000
+    )
+  end
+
+  def send_stream({:conn, conn_pid}, path, request_data, opts) do
+    send_stream_conn(conn_pid, path, request_data, opts)
+  end
+
   def send_stream(pid, path, request_data, opts) when is_pid(pid) do
+    send_stream_conn(pid, path, request_data, opts)
+  end
+
+  defp send_stream_conn(pid, path, request_data, opts) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
 
     case GenServer.call(pid, {:start_stream, path, request_data, opts}, timeout + 2000) do
@@ -595,7 +647,21 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
   end
 
   @impl true
+  def close({:pool, pool_pid}) do
+    SimpleGrpc.Client.Pool.close(pool_pid)
+  end
+
+  def close({:conn, conn_pid}) do
+    close_conn(conn_pid)
+  end
+
   def close(pid) when is_pid(pid) do
+    close_conn(pid)
+  end
+
+  def close(_), do: :ok
+
+  defp close_conn(pid) do
     if Process.alive?(pid) do
       try do
         GenServer.call(pid, :close, 2000)
@@ -606,6 +672,4 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
       :ok
     end
   end
-
-  def close(_), do: :ok
 end
