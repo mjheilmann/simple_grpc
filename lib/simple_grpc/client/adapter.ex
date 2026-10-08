@@ -47,4 +47,13 @@ defmodule SimpleGrpc.Client.Adapter do
   Closes the connection and cleans up any allocated resources.
   """
   @callback close(conn :: conn_state()) :: :ok | {:error, term()}
+
+  @doc """
+  Sends an HTTP/2 PING frame on the connection to probe liveness and measure round-trip latency.
+  Returns `{:ok, roundtrip_latency_us}` or `{:error, reason}`.
+  """
+  @callback ping(conn :: conn_state(), opts :: keyword()) ::
+              {:ok, non_neg_integer()} | {:error, term()}
+
+  @optional_callbacks [ping: 2]
 end

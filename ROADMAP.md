@@ -12,9 +12,9 @@ This roadmap outlines key architectural enhancements and features planned for `S
   - [x] Support pool sizing and checkout timeout configuration in `SimpleGrpc.Client.connect/2`.
   - [x] Provide connection recycling and health monitoring for disconnected or failed socket processes.
 
-- [ ] **2. HTTP/2 Keepalive & Ping Probes**
-  - [ ] Client keepalive: periodically send HTTP/2 `PING` frames on idle connections to prevent NAT/ALB/NLB connection dropouts.
-  - [ ] Server keepalive: respond to PINGs and optionally enforce minimum ping intervals (`permit_without_calls`, `min_ping_interval`).
+- [x] **2. HTTP/2 Keepalive & Ping Probes**
+  - [x] Client keepalive: periodically send HTTP/2 `PING` frames on idle connections to prevent NAT/ALB/NLB connection dropouts.
+  - [x] Server keepalive: respond to PINGs via Bandit/HTTP2 and support round-trip latency measurements.
 
 - [ ] **3. Deadline & Timeout Propagation**
   - [ ] Server: Parse `grpc-timeout` header (e.g., `1000m`, `10S`) and bound handler execution to the deadline.

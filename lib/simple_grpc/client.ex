@@ -132,6 +132,22 @@ defmodule SimpleGrpc.Client do
   end
 
   @doc """
+  Sends an HTTP/2 PING frame on the connection to verify liveness and measure round-trip latency.
+  Returns `{:ok, latency_us}` in microseconds, or `{:error, reason}`.
+
+  ## Options
+  - `:timeout` - Ping timeout in milliseconds (default: `5000`).
+  - `:payload` - 8-byte binary payload (default: 8 random bytes).
+  """
+  def ping(%Conn{adapter: adapter, state: state}, opts \\ []) do
+    if function_exported?(adapter, :ping, 2) do
+      adapter.ping(state, opts)
+    else
+      {:error, :not_supported}
+    end
+  end
+
+  @doc """
   Invokes an RPC dynamically using reflection or an attached runtime schema.
 
   ## Arguments

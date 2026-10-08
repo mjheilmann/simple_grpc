@@ -32,6 +32,12 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
 
       case Mint.HTTP.connect(scheme, host, port, mint_opts) do
         {:ok, conn} ->
+          keepalive_time = Keyword.get(opts, :keepalive_time)
+          keepalive_timeout = Keyword.get(opts, :keepalive_timeout, 10_000)
+          permit_without_calls = Keyword.get(opts, :permit_without_calls, false)
+
+          timer = schedule_keepalive(keepalive_time)
+
           {:ok,
            %{
              conn: conn,
@@ -41,11 +47,35 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
              host: host,
              port: port,
              streams: %{},
-             requests: %{}
+             requests: %{},
+             keepalive_time: keepalive_time,
+             keepalive_timeout: keepalive_timeout,
+             permit_without_calls: permit_without_calls,
+             keepalive_timer: timer,
+             pending_pings: %{}
            }}
 
         {:error, reason} ->
           {:stop, reason}
+      end
+    end
+
+    @impl true
+    def handle_call({:ping, payload, timeout}, from, state) do
+      if is_struct(state.conn, Mint.HTTP2) do
+        ping_payload = payload || :crypto.strong_rand_bytes(8)
+
+        case Mint.HTTP2.ping(state.conn, ping_payload) do
+          {:ok, next_conn, ref} ->
+            timer_ref = Process.send_after(self(), {:ping_timeout, ref}, timeout)
+            new_pings = Map.put(state.pending_pings, ref, {from, System.monotonic_time(:microsecond), timer_ref})
+            {:noreply, %{state | conn: next_conn, pending_pings: new_pings}}
+
+          {:error, next_conn, reason} ->
+            {:reply, {:error, reason}, %{state | conn: next_conn}}
+        end
+      else
+        {:reply, {:error, :not_http2}, state}
       end
     end
 
@@ -91,10 +121,10 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
                stream_large_body(conn, request_ref, framed_payload, timeout, []) do
           new_requests = Map.put(state.requests, request_ref, req_meta)
 
-          {new_requests, new_streams} =
-            process_multiplexed_responses(early_responses, new_requests, state.streams)
+          {new_requests, new_streams, new_pings} =
+            process_multiplexed_responses(early_responses, new_requests, state.streams, state.pending_pings)
 
-          {:noreply, %{state | conn: conn, requests: new_requests, streams: new_streams}}
+          {:noreply, %{state | conn: conn, requests: new_requests, streams: new_streams, pending_pings: new_pings}}
         else
           {:error, next_conn, reason} ->
             {:reply, {:error, 2, inspect(reason)}, %{state | conn: next_conn}}
@@ -195,14 +225,55 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
     end
 
     @impl true
+    def handle_info(:keepalive_tick, state) do
+      has_active_calls = map_size(state.requests) > 0 or map_size(state.streams) > 0
+      should_ping = (has_active_calls or state.permit_without_calls) and is_struct(state.conn, Mint.HTTP2)
+
+      if should_ping do
+        case Mint.HTTP2.ping(state.conn) do
+          {:ok, next_conn, ref} ->
+            timer_ref = Process.send_after(self(), {:ping_timeout, ref}, state.keepalive_timeout)
+            new_pings = Map.put(state.pending_pings, ref, {nil, System.monotonic_time(:microsecond), timer_ref})
+            timer = schedule_keepalive(state.keepalive_time)
+            {:noreply, %{state | conn: next_conn, pending_pings: new_pings, keepalive_timer: timer}}
+
+          {:error, next_conn, reason} ->
+            {:stop, {:keepalive_error, reason}, %{state | conn: next_conn}}
+        end
+      else
+        timer = schedule_keepalive(state.keepalive_time)
+        {:noreply, %{state | keepalive_timer: timer}}
+      end
+    end
+
+    @impl true
+    def handle_info({:ping_timeout, ref}, state) do
+      case Map.get(state.pending_pings, ref) do
+        {from, _sent_at, _t_ref} ->
+          if from, do: GenServer.reply(from, {:error, :timeout})
+          {:stop, :keepalive_timeout, state}
+
+        nil ->
+          {:noreply, state}
+      end
+    end
+
+    @impl true
     def handle_info(message, state) do
       case Mint.HTTP.stream(state.conn, message) do
         {:ok, conn, responses} ->
-          # Route any responses into active unary requests and streaming buffers
-          {new_requests, new_streams} =
-            process_multiplexed_responses(responses, state.requests, state.streams)
+          # Route any responses into active unary requests, streaming buffers, and pings
+          {new_requests, new_streams, new_pings} =
+            process_multiplexed_responses(responses, state.requests, state.streams, state.pending_pings)
 
-          {:noreply, %{state | conn: conn, requests: new_requests, streams: new_streams}}
+          {:noreply,
+           %{
+             state
+             | conn: conn,
+               requests: new_requests,
+               streams: new_streams,
+               pending_pings: new_pings
+           }}
 
         {:error, conn, _reason, _responses} ->
           {:noreply, %{state | conn: conn}}
@@ -212,35 +283,47 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
       end
     end
 
-    defp process_multiplexed_responses(responses, requests, streams) do
-      Enum.reduce(responses, {requests, streams}, fn resp, {req_acc, str_acc} ->
+    defp process_multiplexed_responses(responses, requests, streams, pending_pings) do
+      Enum.reduce(responses, {requests, streams, pending_pings}, fn resp, {req_acc, str_acc, ping_acc} ->
         case resp do
+          {:pong, ref} ->
+            case Map.get(ping_acc, ref) do
+              {from, start_us, timer_ref} ->
+                if timer_ref, do: Process.cancel_timer(timer_ref)
+                latency_us = System.monotonic_time(:microsecond) - start_us
+                if from, do: GenServer.reply(from, {:ok, latency_us})
+                {req_acc, str_acc, Map.delete(ping_acc, ref)}
+
+              nil ->
+                {req_acc, str_acc, ping_acc}
+            end
+
           {:status, ref, status} ->
             if Map.has_key?(req_acc, ref) do
-              {update_in(req_acc, [ref, :status], fn _ -> status end), str_acc}
+              {update_in(req_acc, [ref, :status], fn _ -> status end), str_acc, ping_acc}
             else
-              {req_acc, route_async_responses([resp], str_acc)}
+              {req_acc, route_async_responses([resp], str_acc), ping_acc}
             end
 
           {:headers, ref, headers} ->
             if Map.has_key?(req_acc, ref) do
-              {update_in(req_acc, [ref, :headers], &(&1 ++ headers)), str_acc}
+              {update_in(req_acc, [ref, :headers], &(&1 ++ headers)), str_acc, ping_acc}
             else
-              {req_acc, route_async_responses([resp], str_acc)}
+              {req_acc, route_async_responses([resp], str_acc), ping_acc}
             end
 
           {:data, ref, chunk} ->
             if Map.has_key?(req_acc, ref) do
-              {update_in(req_acc, [ref, :buffer], &(&1 <> chunk)), str_acc}
+              {update_in(req_acc, [ref, :buffer], &(&1 <> chunk)), str_acc, ping_acc}
             else
-              {req_acc, route_async_responses([resp], str_acc)}
+              {req_acc, route_async_responses([resp], str_acc), ping_acc}
             end
 
           {:trailers, ref, trailers} ->
             if Map.has_key?(req_acc, ref) do
-              {update_in(req_acc, [ref, :trailers], &(&1 ++ trailers)), str_acc}
+              {update_in(req_acc, [ref, :trailers], &(&1 ++ trailers)), str_acc, ping_acc}
             else
-              {req_acc, route_async_responses([resp], str_acc)}
+              {req_acc, route_async_responses([resp], str_acc), ping_acc}
             end
 
           {:done, ref} ->
@@ -266,25 +349,31 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
                 end
 
               GenServer.reply(req_meta.from, res)
-              {Map.delete(req_acc, ref), str_acc}
+              {Map.delete(req_acc, ref), str_acc, ping_acc}
             else
-              {req_acc, route_async_responses([resp], str_acc)}
+              {req_acc, route_async_responses([resp], str_acc), ping_acc}
             end
 
           {:error, ref, reason} ->
             if Map.has_key?(req_acc, ref) do
               req_meta = Map.get(req_acc, ref)
               GenServer.reply(req_meta.from, {:error, 2, inspect(reason)})
-              {Map.delete(req_acc, ref), str_acc}
+              {Map.delete(req_acc, ref), str_acc, ping_acc}
             else
-              {req_acc, route_async_responses([resp], str_acc)}
+              {req_acc, route_async_responses([resp], str_acc), ping_acc}
             end
 
           other ->
-            {req_acc, route_async_responses([other], str_acc)}
+            {req_acc, route_async_responses([other], str_acc), ping_acc}
         end
       end)
     end
+
+    defp schedule_keepalive(interval) when is_integer(interval) and interval > 0 do
+      Process.send_after(self(), :keepalive_tick, interval)
+    end
+
+    defp schedule_keepalive(_), do: nil
 
     defp stream_enumerable_body(conn, request_ref, enumerable, timeout, opts) do
       Enum.reduce_while(enumerable, {:ok, conn, []}, fn item, {:ok, acc_conn, early_responses} ->
@@ -660,6 +749,25 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
   end
 
   def close(_), do: :ok
+
+  @impl true
+  def ping({:pool, pool_pid}, opts) do
+    SimpleGrpc.Client.Pool.ping(pool_pid, opts)
+  end
+
+  def ping({:conn, conn_pid}, opts) do
+    ping_conn(conn_pid, opts)
+  end
+
+  def ping(pid, opts) when is_pid(pid) do
+    ping_conn(pid, opts)
+  end
+
+  defp ping_conn(pid, opts) do
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+    payload = Keyword.get(opts, :payload)
+    GenServer.call(pid, {:ping, payload, timeout}, timeout + 2000)
+  end
 
   defp close_conn(pid) do
     if Process.alive?(pid) do

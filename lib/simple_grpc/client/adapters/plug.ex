@@ -106,6 +106,9 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
   @impl true
   def close(_conn), do: :ok
 
+  @impl true
+  def ping(_conn, _opts \\ []), do: {:ok, 0}
+
   defp apply_headers(conn, headers) do
     Enum.reduce(headers, conn, fn {k, v}, acc ->
       Plug.Conn.put_req_header(acc, to_string(k), to_string(v))

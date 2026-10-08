@@ -127,6 +127,21 @@ defmodule SimpleGrpc.Client.Pool do
   end
 
   @doc """
+  Sends an HTTP/2 PING frame on a checked-out connection worker.
+  """
+  def ping(pool, opts \\ []) when is_pid(pool) do
+    timeout = Keyword.get(opts, :timeout, @default_checkout_timeout)
+
+    checkout(
+      pool,
+      fn worker_pid ->
+        GenServer.call(worker_pid, {:ping, Keyword.get(opts, :payload), timeout}, timeout + 2000)
+      end,
+      timeout + 2000
+    )
+  end
+
+  @doc """
   Closes the pool and terminates all worker connections.
   """
   def close(pool) when is_pid(pool) do
