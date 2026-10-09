@@ -38,7 +38,7 @@ defmodule SimpleGrpc.Parser do
         {:ok, :proto3}
 
       Regex.match?(~r/.*syntax\s*=\s*["']proto2["'].*/, proto_contents) ->
-        {:error, "invalid proto file, proto2 syntax is not supported"}
+        {:ok, :proto2}
 
       Regex.match?(
         ~r/.*(?:syntax\s*=\s*["']editions["']|edition\s*=\s*["'][^"']+["']).*/,
@@ -56,6 +56,16 @@ defmodule SimpleGrpc.Parser do
 
   defp parse_contents(:proto3, contents) do
     case SimpleGrpc.Parser.Proto3.parse(contents) do
+      {:ok, ast, "", %{}, _, _} ->
+        {:ok, ast}
+
+      err ->
+        {:error, "could not parse file: #{inspect(err)}"}
+    end
+  end
+
+  defp parse_contents(:proto2, contents) do
+    case SimpleGrpc.Parser.Proto2.parse(contents) do
       {:ok, ast, "", %{}, _, _} ->
         {:ok, ast}
 

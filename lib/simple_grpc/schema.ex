@@ -159,7 +159,7 @@ defmodule SimpleGrpc.Schema do
   def merge(%__MODULE__{} = s1, %__MODULE__{} = s2) do
     %__MODULE__{
       package: s1.package || s2.package,
-      syntax: s2.syntax || s1.syntax || :proto3,
+      syntax: s1.syntax || s2.syntax || :proto3,
       services: Map.merge(s1.services, s2.services),
       messages: Map.merge(s1.messages, s2.messages),
       enums: Map.merge(s1.enums, s2.enums),
@@ -174,9 +174,21 @@ defmodule SimpleGrpc.Schema do
   Builds a Schema struct from a proto string.
   """
   def from_string(proto_string, opts \\ []) do
-    syntax = Keyword.get(opts, :syntax, :proto3)
+    syntax =
+      case Keyword.get(opts, :syntax) do
+        nil ->
+          cond do
+            Regex.match?(~r/.*syntax\s*=\s*["']proto2["'].*/, proto_string) -> :proto2
+            true -> :proto3
+          end
 
-    case SimpleGrpc.Parser.Proto3.parse(proto_string) do
+        s ->
+          s
+      end
+
+    parser = if syntax == :proto2, do: SimpleGrpc.Parser.Proto2, else: SimpleGrpc.Parser.Proto3
+
+    case parser.parse(proto_string) do
       {:ok, ast, "", %{}, _, _} ->
         {:ok, from_ast(ast, syntax: syntax)}
 
@@ -229,7 +241,7 @@ defmodule SimpleGrpc.Schema do
       end)
       |> Map.new()
 
-    top_messages =
+    parsed_top_messages =
       ast
       |> Enum.filter(fn
         {:message, _} -> true
@@ -239,6 +251,32 @@ defmodule SimpleGrpc.Schema do
         msg = Message.parse(m_ast)
         full_name = if package && package != "", do: "#{package}.#{msg.name}", else: msg.name
         %{msg | full_name: full_name}
+      end)
+
+    # Collect extend blocks from top level ast and nested messages
+    top_extend_blocks =
+      ast
+      |> Enum.filter(fn
+        {:extend, _} -> true
+        _ -> false
+      end)
+
+    nested_extend_blocks =
+      Enum.flat_map(parsed_top_messages, &collect_message_extend_blocks/1)
+
+    all_extend_blocks = top_extend_blocks ++ nested_extend_blocks
+
+    top_messages =
+      Enum.reduce(all_extend_blocks, parsed_top_messages, fn {:extend, [target_name | field_asts]},
+                                                             acc_msgs ->
+        parsed_fields =
+          Enum.map(field_asts, fn
+            {:field, _} = f -> Field.parse(f)
+            _ -> nil
+          end)
+          |> Enum.reject(&is_nil/1)
+
+        apply_extend_to_messages(acc_msgs, target_name, parsed_fields, package)
       end)
 
     messages =
@@ -284,6 +322,47 @@ defmodule SimpleGrpc.Schema do
       files: []
     }
     |> finalize_schema()
+  end
+
+  defp collect_message_extend_blocks(%Message{extend_blocks: eb, nested_messages: nm}) do
+    eb ++ Enum.flat_map(nm, &collect_message_extend_blocks/1)
+  end
+
+  defp apply_extend_to_messages(messages, target_name, new_fields, package) do
+    Enum.map(messages, fn msg ->
+      matches =
+        msg.name == target_name or
+          msg.full_name == target_name or
+          (package && "#{package}.#{msg.name}" == target_name) or
+          String.ends_with?(msg.full_name || "", ".#{target_name}") or
+          String.ends_with?(target_name, ".#{msg.name}")
+
+      if matches do
+        updated_fields = msg.fields ++ new_fields
+
+        updated_by_num =
+          new_fields
+          |> Enum.filter(&is_integer(&1.number))
+          |> Enum.reduce(msg.fields_by_number, fn f, acc -> Map.put(acc, f.number, f) end)
+
+        updated_by_name =
+          new_fields
+          |> Enum.filter(&is_atom(&1.name))
+          |> Enum.reduce(msg.fields_by_name, fn f, acc -> Map.put(acc, f.name, f) end)
+
+        %{
+          msg
+          | fields: updated_fields,
+            fields_by_number: updated_by_num,
+            fields_by_name: updated_by_name
+        }
+      else
+        updated_nested =
+          apply_extend_to_messages(msg.nested_messages, target_name, new_fields, package)
+
+        %{msg | nested_messages: updated_nested}
+      end
+    end)
   end
 
   @doc """
@@ -346,9 +425,13 @@ defmodule SimpleGrpc.Schema do
                   Map.put(acc, field.name, [])
                 else
                   if field.prefix == :optional do
-                    Map.put(acc, field.name, nil)
-                  else
                     Map.put(acc, field.name, field.default_value)
+                  else
+                    if field.prefix == :required do
+                      Map.put(acc, field.name, nil)
+                    else
+                      Map.put(acc, field.name, field.default_value)
+                    end
                   end
                 end
             end
@@ -359,6 +442,11 @@ defmodule SimpleGrpc.Schema do
           |> Enum.filter(fn f -> f.prefix == :repeated end)
           |> Enum.map(& &1.name)
 
+        required_fields =
+          linked_fields
+          |> Enum.filter(fn f -> f.prefix == :required end)
+          |> Enum.map(& &1.name)
+
         {name,
          %{
            msg
@@ -366,7 +454,8 @@ defmodule SimpleGrpc.Schema do
              fields_by_number: fbn,
              fields_by_name: fbn_name,
              default_map: default_map,
-             repeated_fields: repeated_fields
+             repeated_fields: repeated_fields,
+             required_fields: required_fields
          }}
       end)
       |> Map.new()
@@ -392,13 +481,39 @@ defmodule SimpleGrpc.Schema do
         tag_bytes =
           if is_integer(num) and is_integer(wire_type), do: encode_tag(num, wire_type), else: nil
 
-        is_packable = if enum_desc, do: true, else: false
+        is_packable =
+          cond do
+            Map.has_key?(field.options, :packed) ->
+              field.options[:packed] in [true, "true"]
+
+            schema.syntax == :proto2 ->
+              false
+
+            enum_desc != nil ->
+              true
+
+            true ->
+              false
+          end
 
         default_val =
           cond do
-            enum_desc != nil -> enum_desc.zero_atom || 0
-            sub_desc != nil -> nil
-            true -> nil
+            enum_desc != nil ->
+              if Map.has_key?(field.options, :default) or Map.has_key?(field.options, "default") do
+                resolve_enum_default(field.default_value, enum_desc)
+              else
+                if field.prefix == :optional do
+                  nil
+                else
+                  enum_desc.zero_atom || 0
+                end
+              end
+
+            sub_desc != nil ->
+              nil
+
+            true ->
+              nil
           end
 
         %{
@@ -413,8 +528,33 @@ defmodule SimpleGrpc.Schema do
 
       wire_type ->
         tag_bytes = if is_integer(num), do: encode_tag(num, wire_type), else: nil
-        is_packable = is_packable_type(type)
-        default_val = default_scalar_type(type)
+
+        is_packable =
+          cond do
+            Map.has_key?(field.options, :packed) ->
+              field.options[:packed] in [true, "true"]
+
+            schema.syntax == :proto2 ->
+              false
+
+            true ->
+              is_packable_type(type)
+          end
+
+        default_val =
+          cond do
+            Map.has_key?(field.options, :default) or Map.has_key?(field.options, "default") ->
+              field.default_value
+
+            field.prefix == :optional ->
+              nil
+
+            field.prefix == :required ->
+              nil
+
+            true ->
+              default_scalar_type(type)
+          end
 
         %{
           field
@@ -432,6 +572,30 @@ defmodule SimpleGrpc.Schema do
   end
 
   defp link_field_descriptors(field, _schema), do: field
+
+  defp resolve_enum_default(val, %SchemaEnum{
+         atom_to_int: a2i,
+         str_to_int: s2i,
+         zero_atom: zero,
+         fields: fields
+       }) do
+    cond do
+      is_atom(val) and Map.has_key?(a2i, val) ->
+        val
+
+      is_binary(val) and Map.has_key?(s2i, val) ->
+        int_v = Map.get(s2i, val)
+        Enum.find_value(fields, fn {k, v} -> if v == int_v, do: k end) || String.to_atom(val)
+
+      is_integer(val) ->
+        Enum.find_value(fields, fn {k, v} -> if v == val, do: k end) || val
+
+      true ->
+        zero || val
+    end
+  end
+
+  defp resolve_enum_default(val, _), do: val
 
   defp encode_tag(field_num, wire_type) when is_integer(field_num) and is_integer(wire_type) do
     encode_varint_bin(field_num <<< 3 ||| wire_type)

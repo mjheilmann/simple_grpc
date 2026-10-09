@@ -366,6 +366,12 @@ defmodule SimpleGrpc.Reflection.Descriptor do
     dependencies =
       extract_dependencies(schema)
 
+    syntax =
+      case schema.syntax do
+        :proto2 -> "proto2"
+        _ -> "proto3"
+      end
+
     %{
       name: name,
       package: package,
@@ -373,7 +379,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
       message_type: top_messages,
       enum_type: top_enums,
       service: services,
-      syntax: "proto3"
+      syntax: syntax
     }
   end
 
@@ -474,7 +480,12 @@ defmodule SimpleGrpc.Reflection.Descriptor do
     end)
   end
 
-  defp field_to_proto(%Field{name: fname, number: num, type: type, prefix: prefix}, package, opts) do
+  defp field_to_proto(
+         %Field{name: fname, number: num, type: type, prefix: prefix, default_value: def_val} =
+           field,
+         package,
+         opts
+       ) do
     oneof_index = Keyword.get(opts, :oneof_index)
     type_code = type_name_to_type_code(type)
 
@@ -482,6 +493,8 @@ defmodule SimpleGrpc.Reflection.Descriptor do
       cond do
         # LABEL_REPEATED
         prefix == :repeated -> 3
+        # LABEL_REQUIRED
+        prefix == :required -> 2
         # LABEL_OPTIONAL
         prefix == :optional -> 1
         # LABEL_OPTIONAL (proto3 default)
@@ -506,6 +519,18 @@ defmodule SimpleGrpc.Reflection.Descriptor do
       json_name: to_json_name(fname),
       proto3_optional: proto3_optional
     }
+
+    has_explicit_default =
+      is_map(field.options) and
+        (Map.has_key?(field.options, :default) or
+           Map.has_key?(field.options, "default"))
+
+    res =
+      if has_explicit_default and not is_nil(def_val) do
+        Map.put(res, :default_value, to_string(def_val))
+      else
+        res
+      end
 
     if not is_nil(oneof_index) do
       Map.put(res, :oneof_index, oneof_index)
@@ -768,7 +793,9 @@ defmodule SimpleGrpc.Reflection.Descriptor do
             prefix =
               cond do
                 f_label == 3 -> :repeated
+                f_label == 2 -> :required
                 f_proto3_opt -> :optional
+                f_label == 1 -> :optional
                 true -> nil
               end
 

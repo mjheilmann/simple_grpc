@@ -26,10 +26,10 @@ This roadmap outlines key architectural enhancements and features planned for `S
 
 ## 📌 Phase 2: Protobuf Ecosystem & Specs
 
-- [ ] **4. `proto2` Syntax Support**
-  - [ ] Extend `SimpleGrpc.Parser` to support `syntax = "proto2"`.
-  - [ ] Parse `required`, `optional` with explicit `default = ...`, `extensions`, and `extend` blocks.
-  - [ ] Handle proto2 field presence semantics (tracking explicitly set fields vs. defaults).
+- [x] **4. `proto2` Syntax Support**
+  - [x] Extend `SimpleGrpc.Parser` to support `syntax = "proto2"`.
+  - [x] Parse `required`, `optional` with explicit `default = ...`, `extensions`, and `extend` blocks.
+  - [x] Handle proto2 field presence semantics (tracking explicitly set fields vs. defaults).
 
 - [ ] **5. Protobuf Editions (Editions 2023+)**
   - [ ] Support `edition = "2023";` syntax in parser and compiler.

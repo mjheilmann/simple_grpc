@@ -100,13 +100,6 @@ defmodule SimpleGrpc.Parser.Proto3Test do
     assert_no_unhandled(ast, "well_known_types.proto")
   end
 
-  test "returns clear error when proto2 is encountered" do
-    assert {:error, msg} =
-             SimpleGrpc.Parser.parse("priv/protos/proto2_features/proto2_features.proto")
-
-    assert msg =~ "invalid proto file, proto2 syntax is not supported"
-  end
-
   test "returns clear error when syntax declaration is missing" do
     invalid_proto = "message MissingSyntax { string name = 1; }"
     tmp_path = Path.join(System.tmp_dir!(), "missing_syntax.proto")

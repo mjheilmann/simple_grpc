@@ -24,6 +24,7 @@ defmodule SimpleGrpc.Client.Pool do
   def start_link(target, opts \\ []) do
     pool_size = Keyword.get(opts, :pool_size, default_pool_size())
     lazy = Keyword.get(opts, :lazy, false)
+
     base_opts = [
       worker: {__MODULE__, {target, opts}},
       pool_size: max(pool_size, 1),

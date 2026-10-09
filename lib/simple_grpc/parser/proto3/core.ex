@@ -65,6 +65,23 @@ defmodule SimpleGrpc.Parser.Proto3.Core do
     |> tag(:option)
   end
 
+  # Helper to parse signed integer
+  def parse_signed_int([sign_str, digits_int]) do
+    if sign_str == "-", do: -digits_int, else: digits_int
+  end
+
+  def parse_signed_int([digits_int]), do: digits_int
+
+  # Helper to parse float
+  def parse_float(parts) do
+    str = Enum.join(parts)
+
+    case Float.parse(str) do
+      {f, _} -> f
+      :error -> str
+    end
+  end
+
   def option_value do
     str_lit =
       choice([
@@ -72,28 +89,67 @@ defmodule SimpleGrpc.Parser.Proto3.Core do
         ignore(string("'")) |> utf8_string([not: ?'], min: 0) |> ignore(string("'"))
       ])
 
+    float_lit =
+      choice([string("-"), string("+"), empty()])
+      |> concat(ascii_string([?0..?9], min: 1))
+      |> concat(string("."))
+      |> concat(ascii_string([?0..?9], min: 1))
+      |> optional(
+        choice([string("e"), string("E")])
+        |> concat(choice([string("-"), string("+"), empty()]))
+        |> concat(ascii_string([?0..?9], min: 1))
+      )
+      |> reduce({__MODULE__, :parse_float, []})
+
+    int_lit =
+      choice([string("-"), string("+"), empty()])
+      |> concat(integer(min: 1))
+      |> reduce({__MODULE__, :parse_signed_int, []})
+
+    zero_lit =
+      choice([
+        string("0") |> replace(0),
+        string("-0") |> replace(0),
+        string("+0") |> replace(0)
+      ])
+
     choice([
       str_lit,
       string("true") |> replace(true),
       string("false") |> replace(false),
-      integer(min: 1),
+      string("inf") |> replace(:infinity),
+      string("-inf") |> replace(:"-infinity"),
+      string("nan") |> replace(:nan),
+      float_lit,
+      zero_lit,
+      int_lit,
       full_ident()
     ])
+  end
+
+  def single_field_option do
+    option_name()
+    |> concat(space_or_comment())
+    |> choice([
+      ignore(string("="))
+      |> concat(space_or_comment())
+      |> concat(option_value()),
+      empty() |> replace(true)
+    ])
+    |> tag(:field_option)
   end
 
   def field_options do
     ignore(string("["))
     |> concat(space_or_comment())
-    |> ignore(string("deprecated"))
-    |> concat(space_or_comment())
-    |> ignore(string("="))
-    |> concat(space_or_comment())
-    |> choice([
-      string("true") |> replace(true),
-      string("false") |> replace(false)
-    ])
+    |> concat(single_field_option())
+    |> repeat(
+      concat(space_or_comment(), ignore(string(",")))
+      |> concat(space_or_comment())
+      |> concat(single_field_option())
+    )
     |> concat(space_or_comment())
     |> ignore(string("]"))
-    |> tag(:deprecated)
+    |> tag(:field_options)
   end
 end

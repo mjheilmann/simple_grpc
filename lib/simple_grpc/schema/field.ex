@@ -60,25 +60,29 @@ defmodule SimpleGrpc.Schema.Field do
 
     [type, name, number | rest] = items
 
-    deprecated =
-      Enum.find_value(rest, false, fn
-        {:deprecated, [val]} -> val
-        {:deprecated, val} -> val
-        _ -> false
-      end)
-
-    options =
-      Enum.reduce(rest, %{}, fn
-        {:deprecated, [val]}, acc -> Map.put(acc, :deprecated, val)
-        {:deprecated, val}, acc -> Map.put(acc, :deprecated, val)
-        {:option, [k, v]}, acc -> Map.put(acc, k, v)
-        _, acc -> acc
-      end)
+    options = extract_field_options(rest)
+    deprecated = Map.get(options, :deprecated, false)
 
     wire_type = compute_wire_type(type)
     tag_bytes = if wire_type && is_integer(number), do: encode_tag(number, wire_type), else: nil
-    is_packable = compute_is_packable(type)
-    default_value = compute_default_value(type, prefix, :field)
+
+    is_packable =
+      case Map.get(options, :packed) do
+        nil -> compute_is_packable(type)
+        val -> val == true or val == "true"
+      end
+
+    default_value =
+      cond do
+        Map.has_key?(options, :default) ->
+          options[:default]
+
+        Map.has_key?(options, "default") ->
+          options["default"]
+
+        true ->
+          compute_default_value(type, prefix, :field)
+      end
 
     %__MODULE__{
       kind: :field,
@@ -96,12 +100,7 @@ defmodule SimpleGrpc.Schema.Field do
   end
 
   def parse({:map, [key_type, val_type, name, number | rest]}) do
-    options =
-      Enum.reduce(rest, %{}, fn
-        {:option, [k, v]}, acc -> Map.put(acc, k, v)
-        _, acc -> acc
-      end)
-
+    options = extract_field_options(rest)
     tag_bytes = if is_integer(number), do: encode_tag(number, 2), else: nil
 
     %__MODULE__{
@@ -147,6 +146,51 @@ defmodule SimpleGrpc.Schema.Field do
       deprecated: false,
       oneof_name: oneof_atom
     }
+  end
+
+  defp extract_field_options(rest) do
+    Enum.reduce(rest, %{}, fn
+      {:field_options, opts}, acc when is_list(opts) ->
+        Enum.reduce(opts, acc, fn
+          {:field_option, [k, v]}, inner_acc ->
+            key_atom = option_key_to_atom(k)
+            inner_acc |> Map.put(k, v) |> Map.put(key_atom, v)
+
+          {:field_option, [k]}, inner_acc ->
+            key_atom = option_key_to_atom(k)
+            inner_acc |> Map.put(k, true) |> Map.put(key_atom, true)
+
+          _, inner_acc ->
+            inner_acc
+        end)
+
+      {:deprecated, [val]}, acc ->
+        acc |> Map.put(:deprecated, val) |> Map.put("deprecated", val)
+
+      {:deprecated, val}, acc ->
+        acc |> Map.put(:deprecated, val) |> Map.put("deprecated", val)
+
+      {:option, [k, v]}, acc ->
+        key_atom = option_key_to_atom(k)
+        acc |> Map.put(k, v) |> Map.put(key_atom, v)
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp option_key_to_atom(k) when is_atom(k), do: k
+
+  defp option_key_to_atom(k) when is_binary(k) do
+    case k do
+      "default" -> :default
+      "deprecated" -> :deprecated
+      "packed" -> :packed
+      "json_name" -> :json_name
+      _ -> String.to_atom(k)
+    end
+  rescue
+    _ -> k
   end
 
   def compute_default_value(_type, :repeated, _kind), do: []

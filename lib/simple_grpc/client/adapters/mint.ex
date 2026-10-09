@@ -68,7 +68,14 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
         case Mint.HTTP2.ping(state.conn, ping_payload) do
           {:ok, next_conn, ref} ->
             timer_ref = Process.send_after(self(), {:ping_timeout, ref}, timeout)
-            new_pings = Map.put(state.pending_pings, ref, {from, System.monotonic_time(:microsecond), timer_ref})
+
+            new_pings =
+              Map.put(
+                state.pending_pings,
+                ref,
+                {from, System.monotonic_time(:microsecond), timer_ref}
+              )
+
             {:noreply, %{state | conn: next_conn, pending_pings: new_pings}}
 
           {:error, next_conn, reason} ->
@@ -122,9 +129,21 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
           new_requests = Map.put(state.requests, request_ref, req_meta)
 
           {new_requests, new_streams, new_pings} =
-            process_multiplexed_responses(early_responses, new_requests, state.streams, state.pending_pings)
+            process_multiplexed_responses(
+              early_responses,
+              new_requests,
+              state.streams,
+              state.pending_pings
+            )
 
-          {:noreply, %{state | conn: conn, requests: new_requests, streams: new_streams, pending_pings: new_pings}}
+          {:noreply,
+           %{
+             state
+             | conn: conn,
+               requests: new_requests,
+               streams: new_streams,
+               pending_pings: new_pings
+           }}
         else
           {:error, next_conn, reason} ->
             {:reply, {:error, 2, inspect(reason)}, %{state | conn: next_conn}}
@@ -227,15 +246,26 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
     @impl true
     def handle_info(:keepalive_tick, state) do
       has_active_calls = map_size(state.requests) > 0 or map_size(state.streams) > 0
-      should_ping = (has_active_calls or state.permit_without_calls) and is_struct(state.conn, Mint.HTTP2)
+
+      should_ping =
+        (has_active_calls or state.permit_without_calls) and is_struct(state.conn, Mint.HTTP2)
 
       if should_ping do
         case Mint.HTTP2.ping(state.conn) do
           {:ok, next_conn, ref} ->
             timer_ref = Process.send_after(self(), {:ping_timeout, ref}, state.keepalive_timeout)
-            new_pings = Map.put(state.pending_pings, ref, {nil, System.monotonic_time(:microsecond), timer_ref})
+
+            new_pings =
+              Map.put(
+                state.pending_pings,
+                ref,
+                {nil, System.monotonic_time(:microsecond), timer_ref}
+              )
+
             timer = schedule_keepalive(state.keepalive_time)
-            {:noreply, %{state | conn: next_conn, pending_pings: new_pings, keepalive_timer: timer}}
+
+            {:noreply,
+             %{state | conn: next_conn, pending_pings: new_pings, keepalive_timer: timer}}
 
           {:error, next_conn, reason} ->
             {:stop, {:keepalive_error, reason}, %{state | conn: next_conn}}
@@ -264,7 +294,12 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
         {:ok, conn, responses} ->
           # Route any responses into active unary requests, streaming buffers, and pings
           {new_requests, new_streams, new_pings} =
-            process_multiplexed_responses(responses, state.requests, state.streams, state.pending_pings)
+            process_multiplexed_responses(
+              responses,
+              state.requests,
+              state.streams,
+              state.pending_pings
+            )
 
           {:noreply,
            %{
@@ -284,7 +319,8 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
     end
 
     defp process_multiplexed_responses(responses, requests, streams, pending_pings) do
-      Enum.reduce(responses, {requests, streams, pending_pings}, fn resp, {req_acc, str_acc, ping_acc} ->
+      Enum.reduce(responses, {requests, streams, pending_pings}, fn resp,
+                                                                    {req_acc, str_acc, ping_acc} ->
         case resp do
           {:pong, ref} ->
             case Map.get(ping_acc, ref) do

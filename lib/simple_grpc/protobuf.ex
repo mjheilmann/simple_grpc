@@ -101,24 +101,35 @@ defmodule SimpleGrpc.Protobuf do
 
     merged = Map.merge(def_map, raw_map)
 
-    case rep_fields do
-      [] ->
-        merged
+    res =
+      case rep_fields do
+        [] ->
+          merged
 
-      [single_rep] ->
-        case Map.get(raw_map, single_rep) do
-          nil -> merged
-          val -> Map.put(merged, single_rep, Enum.reverse(val))
-        end
-
-      multiple_rep ->
-        Enum.reduce(multiple_rep, merged, fn f_name, acc ->
-          case Map.get(raw_map, f_name) do
-            nil -> acc
-            val -> Map.put(acc, f_name, Enum.reverse(val))
+        [single_rep] ->
+          case Map.get(raw_map, single_rep) do
+            nil -> merged
+            val -> Map.put(merged, single_rep, Enum.reverse(val))
           end
-        end)
+
+        multiple_rep ->
+          Enum.reduce(multiple_rep, merged, fn f_name, acc ->
+            case Map.get(raw_map, f_name) do
+              nil -> acc
+              val -> Map.put(acc, f_name, Enum.reverse(val))
+            end
+          end)
+      end
+
+    if msg_desc.required_fields != [] do
+      for req_f <- msg_desc.required_fields do
+        if is_nil(Map.get(res, req_f)) do
+          throw({:error, "missing required field '#{req_f}' for #{msg_desc.name}"})
+        end
+      end
     end
+
+    res
   end
 
   defp decode_fallback(message_or_mod, binary, schema_ctx) do
@@ -129,7 +140,17 @@ defmodule SimpleGrpc.Protobuf do
       decode_with_descriptor(msg_desc, binary, schema_ctx)
     else
       decoded_raw = decode_wire_fields(binary, msg_desc, schema_ctx, %{})
-      apply_defaults_and_coerce(msg_desc, decoded_raw, schema_ctx)
+      res = apply_defaults_and_coerce(msg_desc, decoded_raw, schema_ctx)
+
+      if msg_desc.required_fields != [] do
+        for req_f <- msg_desc.required_fields do
+          if is_nil(Map.get(res, req_f)) do
+            throw({:error, "missing required field '#{req_f}' for #{msg_desc.name}"})
+          end
+        end
+      end
+
+      res
     end
   end
 
@@ -160,6 +181,15 @@ defmodule SimpleGrpc.Protobuf do
       %Field{prefix: :repeated} = field ->
         val = get_field_val(data, field.name)
         encode_repeated(field, val, schema_ctx, msg_desc)
+
+      %Field{prefix: :required} = field ->
+        case get_field_val(data, field.name) do
+          nil ->
+            throw({:error, "missing required field '#{field.name}' for #{msg_desc.name}"})
+
+          val ->
+            encode_field_value(field, val, schema_ctx, msg_desc)
+        end
 
       %Field{prefix: :optional} = field ->
         case get_field_val(data, field.name) do
@@ -308,14 +338,16 @@ defmodule SimpleGrpc.Protobuf do
          true,
          _schema_ctx,
          _msg_desc
-       ), do: [tag || encode_tag(num, 0), <<1>>]
+       ),
+       do: [tag || encode_tag(num, 0), <<1>>]
 
   defp encode_field_value(
          %Field{tag_bytes: tag, type: "bool", number: num},
          false,
          _schema_ctx,
          _msg_desc
-       ), do: [tag || encode_tag(num, 0), <<0>>]
+       ),
+       do: [tag || encode_tag(num, 0), <<0>>]
 
   defp encode_field_value(
          %Field{tag_bytes: tag, type: "sint32", number: num},
@@ -420,7 +452,7 @@ defmodule SimpleGrpc.Protobuf do
         encode_raw_value(field.type, item, schema_ctx, msg_desc)
       end)
 
-    tag = field.tag_bytes || encode_tag(field.number, 2)
+    tag = encode_tag(field.number, 2)
     [tag, encode_varint(IO.iodata_length(packed_bytes)), packed_bytes]
   end
 
@@ -523,7 +555,8 @@ defmodule SimpleGrpc.Protobuf do
     encode_fields(sub_desc.fields, value, schema_ctx, sub_desc)
   end
 
-  defp encode_tag(field_num, wire_type) do
+  @doc false
+  def encode_tag(field_num, wire_type) do
     encode_varint(field_num <<< 3 ||| wire_type)
   end
 
@@ -862,7 +895,8 @@ defmodule SimpleGrpc.Protobuf do
          %Field{type: "fixed64"},
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   defp decode_field_value(
          <<val::little-signed-size(64), rest::binary>>,
@@ -870,7 +904,8 @@ defmodule SimpleGrpc.Protobuf do
          %Field{type: "sfixed64"},
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   # Fixed32 / SFixed32
   defp decode_field_value(
@@ -879,7 +914,8 @@ defmodule SimpleGrpc.Protobuf do
          %Field{type: "fixed32"},
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   defp decode_field_value(
          <<val::little-signed-size(32), rest::binary>>,
@@ -887,7 +923,8 @@ defmodule SimpleGrpc.Protobuf do
          %Field{type: "sfixed32"},
          _schema_ctx,
          _msg_desc
-       ), do: {val, rest}
+       ),
+       do: {val, rest}
 
   # Varint integers & bools
   defp decode_field_value(binary, 0, %Field{type: t, prefix: :repeated}, _schema_ctx, _msg_desc)
@@ -1084,33 +1121,36 @@ defmodule SimpleGrpc.Protobuf do
     {sub_decoded, remaining}
   end
 
-  defp decode_packed_values(<<>>, _type, _schema_ctx, _msg_desc), do: []
+  @doc false
+  def decode_packed_values(binary, type, schema_ctx \\ nil, msg_desc \\ nil)
 
-  defp decode_packed_values(binary, "int32", _schema_ctx, _msg_desc) do
+  def decode_packed_values(<<>>, _type, _schema_ctx, _msg_desc), do: []
+
+  def decode_packed_values(binary, "int32", _schema_ctx, _msg_desc) do
     decode_packed_varints(binary)
   end
 
-  defp decode_packed_values(binary, "int64", _schema_ctx, _msg_desc) do
+  def decode_packed_values(binary, "int64", _schema_ctx, _msg_desc) do
     decode_packed_varints(binary)
   end
 
-  defp decode_packed_values(binary, "uint32", _schema_ctx, _msg_desc) do
+  def decode_packed_values(binary, "uint32", _schema_ctx, _msg_desc) do
     decode_packed_varints(binary)
   end
 
-  defp decode_packed_values(binary, "uint64", _schema_ctx, _msg_desc) do
+  def decode_packed_values(binary, "uint64", _schema_ctx, _msg_desc) do
     decode_packed_varints(binary)
   end
 
-  defp decode_packed_values(binary, "double", _schema_ctx, _msg_desc) do
+  def decode_packed_values(binary, "double", _schema_ctx, _msg_desc) do
     decode_packed_doubles(binary)
   end
 
-  defp decode_packed_values(binary, "float", _schema_ctx, _msg_desc) do
+  def decode_packed_values(binary, "float", _schema_ctx, _msg_desc) do
     decode_packed_floats(binary)
   end
 
-  defp decode_packed_values(binary, type, schema_ctx, msg_desc) do
+  def decode_packed_values(binary, type, schema_ctx, msg_desc) do
     wire_type = wire_type_for(type, schema_ctx, msg_desc)
     {item, rest} = decode_scalar_or_message(binary, wire_type, type, schema_ctx, msg_desc)
     [item | decode_packed_values(rest, type, schema_ctx, msg_desc)]

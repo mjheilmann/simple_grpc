@@ -42,6 +42,7 @@ defmodule SimpleGrpc.DeadlineTest do
         port: 0,
         startup_log: false
       )
+
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
