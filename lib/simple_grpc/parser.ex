@@ -32,6 +32,8 @@ defmodule SimpleGrpc.Parser do
     end
   end
 
+  @supported_editions ["2023", "2024"]
+
   defp version(proto_contents) do
     cond do
       Regex.match?(~r/.*syntax\s*=\s*["']proto3["'].*/, proto_contents) ->
@@ -40,11 +42,20 @@ defmodule SimpleGrpc.Parser do
       Regex.match?(~r/.*syntax\s*=\s*["']proto2["'].*/, proto_contents) ->
         {:ok, :proto2}
 
-      Regex.match?(
-        ~r/.*(?:syntax\s*=\s*["']editions["']|edition\s*=\s*["'][^"']+["']).*/,
-        proto_contents
-      ) ->
-        {:error, "invalid proto file, protobuf editions are not supported"}
+      captures =
+          Regex.named_captures(
+            ~r/.*(?:syntax\s*=\s*["']editions["']|edition\s*=\s*["'](?<edition>[^"']+)["']).*/,
+            proto_contents
+          ) ->
+        ed = Map.get(captures, "edition")
+        edition = if is_nil(ed) or ed == "", do: "2023", else: ed
+
+        if edition in @supported_editions do
+          {:ok, {:editions, edition}}
+        else
+          {:error,
+           "invalid proto file, unsupported protobuf edition: #{inspect(edition)} (supported editions: #{Enum.join(@supported_editions, ", ")})"}
+        end
 
       captures = Regex.named_captures(~r/.*syntax\s*=\s*["'](?<ver>[^"']+)["'].*/, proto_contents) ->
         {:error, "invalid proto file, unsupported syntax: #{inspect(captures["ver"])}"}
@@ -71,6 +82,20 @@ defmodule SimpleGrpc.Parser do
 
       err ->
         {:error, "could not parse file: #{inspect(err)}"}
+    end
+  end
+
+  defp parse_contents({:editions, _ed}, contents) do
+    parse_editions(contents)
+  end
+
+  defp parse_editions(contents) do
+    case SimpleGrpc.Parser.Editions.parse(contents) do
+      {:ok, ast, "", %{}, _, _} ->
+        {:ok, ast}
+
+      err ->
+        {:error, "could not parse editions file: #{inspect(err)}"}
     end
   end
 end

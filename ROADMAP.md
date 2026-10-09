@@ -31,13 +31,13 @@ This roadmap outlines key architectural enhancements and features planned for `S
   - [x] Parse `required`, `optional` with explicit `default = ...`, `extensions`, and `extend` blocks.
   - [x] Handle proto2 field presence semantics (tracking explicitly set fields vs. defaults).
 
-- [ ] **5. Protobuf Editions (Editions 2023+)**
-  - [ ] Support `edition = "2023";` syntax in parser and compiler.
-  - [ ] Implement edition feature flags (`features.field_presence`, `features.enum_type`, etc.).
+- [x] **5. Protobuf Editions (Editions 2023+)**
+  - [x] Support `edition = "2023";` syntax in parser and compiler.
+  - [x] Implement edition feature flags (`features.field_presence`, `features.enum_type`, etc.).
 
-- [ ] **6. Well-Known Types (WKT) & Unknown Fields**
-  - [ ] Native helpers/coercers for `google.protobuf.Timestamp`, `Duration`, `Struct`, `Any`, `Empty`, and `FieldMask`.
-  - [ ] Unknown field preservation: retain unparsed wire tags during decode and re-emit them on encode (essential for proxies and backward compatibility).
+- [x] **6. Well-Known Types (WKT) & Unknown Fields**
+  - [x] Native helpers/coercers for `google.protobuf.Timestamp`, `Duration`, `Struct`, `Any`, `Empty`, and `FieldMask`.
+  - [x] Unknown field preservation: retain unparsed wire tags during decode and re-emit them on encode (essential for proxies and backward compatibility).
 
 ---
 

@@ -185,7 +185,8 @@ defmodule SimpleGrpc.Reflection.Descriptor do
                              prefix: :repeated,
                              kind: :field
                            },
-                           %Field{name: :syntax, number: 12, type: "string", kind: :field}
+                           %Field{name: :syntax, number: 12, type: "string", kind: :field},
+                           %Field{name: :edition, number: 14, type: "string", kind: :field}
                          ])
 
   @message_options Builder.make_message("MessageOptions", [
@@ -259,10 +260,15 @@ defmodule SimpleGrpc.Reflection.Descriptor do
         pkg -> pkg
       end
 
+    edition = Map.get(fdp_map, :edition) || Map.get(fdp_map, "edition")
+
     syntax =
       case Map.get(fdp_map, :syntax) || Map.get(fdp_map, "syntax") do
         "proto2" -> :proto2
         :proto2 -> :proto2
+        "editions" -> :editions
+        :editions -> :editions
+        _ when edition != nil and edition != "" -> :editions
         _ -> :proto3
       end
 
@@ -369,8 +375,11 @@ defmodule SimpleGrpc.Reflection.Descriptor do
     syntax =
       case schema.syntax do
         :proto2 -> "proto2"
+        :editions -> "editions"
         _ -> "proto3"
       end
+
+    edition = if schema.syntax == :editions, do: schema.edition || "2023", else: nil
 
     %{
       name: name,
@@ -379,7 +388,8 @@ defmodule SimpleGrpc.Reflection.Descriptor do
       message_type: top_messages,
       enum_type: top_enums,
       service: services,
-      syntax: syntax
+      syntax: syntax,
+      edition: edition
     }
   end
 

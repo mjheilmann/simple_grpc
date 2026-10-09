@@ -20,7 +20,8 @@ defmodule SimpleGrpc.Schema.Message do
     required_fields: [],
     extension_ranges: [],
     extend_blocks: [],
-    options: %{}
+    options: %{},
+    features: %{}
   ]
 
   @type t :: %__MODULE__{
@@ -37,7 +38,8 @@ defmodule SimpleGrpc.Schema.Message do
           required_fields: list(atom()),
           extension_ranges: list(any()),
           extend_blocks: list(any()),
-          options: map()
+          options: map(),
+          features: map()
         }
 
   @doc """
@@ -93,6 +95,8 @@ defmodule SimpleGrpc.Schema.Message do
         {:option, [k, v]}, acc -> Map.put(acc, k, v)
         _, acc -> acc
       end)
+
+    features = Field.extract_features(options)
 
     fields_by_number =
       fields
@@ -176,7 +180,8 @@ defmodule SimpleGrpc.Schema.Message do
       required_fields: required_fields,
       extension_ranges: extension_ranges,
       extend_blocks: extend_blocks,
-      options: options
+      options: options,
+      features: features
     }
   end
 

@@ -165,51 +165,61 @@ defmodule SimpleGrpc.Protobuf do
   # ---------------------------------------------------------------------------
 
   defp encode_fields(fields, data, schema_ctx, msg_desc) when is_map(data) do
-    Enum.map(fields, fn
-      %Field{kind: :oneof} = field ->
-        encode_oneof(field, data, schema_ctx, msg_desc)
+    field_iodata =
+      Enum.map(fields, fn
+        %Field{kind: :oneof} = field ->
+          encode_oneof(field, data, schema_ctx, msg_desc)
 
-      %Field{kind: :map} = field ->
-        val = get_field_val(data, field.name)
+        %Field{kind: :map} = field ->
+          val = get_field_val(data, field.name)
 
-        if is_map(val) and map_size(val) > 0 do
-          encode_map_entries(field, val, schema_ctx, msg_desc)
-        else
-          <<>>
-        end
-
-      %Field{prefix: :repeated} = field ->
-        val = get_field_val(data, field.name)
-        encode_repeated(field, val, schema_ctx, msg_desc)
-
-      %Field{prefix: :required} = field ->
-        case get_field_val(data, field.name) do
-          nil ->
-            throw({:error, "missing required field '#{field.name}' for #{msg_desc.name}"})
-
-          val ->
-            encode_field_value(field, val, schema_ctx, msg_desc)
-        end
-
-      %Field{prefix: :optional} = field ->
-        case get_field_val(data, field.name) do
-          nil -> <<>>
-          val -> encode_field_value(field, val, schema_ctx, msg_desc)
-        end
-
-      %Field{} = field ->
-        case get_field_val(data, field.name) do
-          nil ->
+          if is_map(val) and map_size(val) > 0 do
+            encode_map_entries(field, val, schema_ctx, msg_desc)
+          else
             <<>>
+          end
 
-          val ->
-            if is_field_default?(field, val, schema_ctx, msg_desc) do
-              <<>>
-            else
+        %Field{prefix: :repeated} = field ->
+          val = get_field_val(data, field.name)
+          encode_repeated(field, val, schema_ctx, msg_desc)
+
+        %Field{prefix: :required} = field ->
+          case get_field_val(data, field.name) do
+            nil ->
+              throw({:error, "missing required field '#{field.name}' for #{msg_desc.name}"})
+
+            val ->
               encode_field_value(field, val, schema_ctx, msg_desc)
-            end
-        end
-    end)
+          end
+
+        %Field{prefix: :optional} = field ->
+          case get_field_val(data, field.name) do
+            nil -> <<>>
+            val -> encode_field_value(field, val, schema_ctx, msg_desc)
+          end
+
+        %Field{} = field ->
+          case get_field_val(data, field.name) do
+            nil ->
+              <<>>
+
+            val ->
+              if is_field_default?(field, val, schema_ctx, msg_desc) do
+                <<>>
+              else
+                encode_field_value(field, val, schema_ctx, msg_desc)
+              end
+          end
+      end)
+
+    unknown_iodata =
+      case Map.get(data, :__unknown_fields__) || Map.get(data, "__unknown_fields__") do
+        nil -> []
+        bin when is_binary(bin) -> bin
+        list when is_list(list) -> list
+      end
+
+    [field_iodata, unknown_iodata]
   end
 
   defp encode_fields(fields, data, schema_ctx, msg_desc) when is_list(data) do
@@ -701,8 +711,18 @@ defmodule SimpleGrpc.Protobuf do
 
     case Map.get(fbn, field_num) do
       nil ->
+        orig_len = byte_size(binary)
         {_skipped, remaining} = skip_wire_value(rest, wire_type)
-        decode_wire_fields(remaining, msg_desc, schema_ctx, acc)
+        consumed_len = orig_len - byte_size(remaining)
+        unknown_wire = :binary.part(binary, 0, consumed_len)
+        unknowns = Map.get(acc, :__unknown_fields__, []) ++ [unknown_wire]
+
+        decode_wire_fields(
+          remaining,
+          msg_desc,
+          schema_ctx,
+          Map.put(acc, :__unknown_fields__, unknowns)
+        )
 
       field_desc ->
         {field_value, remaining} =

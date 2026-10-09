@@ -111,7 +111,7 @@ defmodule SimpleGrpc.Parser.Proto3Test do
     assert msg =~ "invalid proto file, no syntax declaration"
   end
 
-  test "returns clear error when protobuf editions are encountered" do
+  test "successfully parses protobuf editions files" do
     edition_proto_1 = "edition = \"2023\";\npackage test;\nmessage M { int32 x = 1; }"
     tmp_path_1 = Path.join(System.tmp_dir!(), "editions_1.proto")
     File.write!(tmp_path_1, edition_proto_1)
@@ -125,10 +125,7 @@ defmodule SimpleGrpc.Parser.Proto3Test do
       File.rm(tmp_path_2)
     end)
 
-    assert {:error, msg1} = SimpleGrpc.Parser.parse(tmp_path_1)
-    assert msg1 =~ "invalid proto file, protobuf editions are not supported"
-
-    assert {:error, msg2} = SimpleGrpc.Parser.parse(tmp_path_2)
-    assert msg2 =~ "invalid proto file, protobuf editions are not supported"
+    assert {:ok, {:editions, "2023"}, _ast1} = SimpleGrpc.Parser.parse(tmp_path_1)
+    assert {:ok, {:editions, "2023"}, _ast2} = SimpleGrpc.Parser.parse(tmp_path_2)
   end
 end

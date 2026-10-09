@@ -10,7 +10,9 @@ defmodule SimpleGrpc.Schema do
   defstruct [
     :package,
     :compiled_module,
+    :edition,
     syntax: :proto3,
+    features: %{},
     services: %{},
     messages: %{},
     enums: %{},
@@ -22,6 +24,8 @@ defmodule SimpleGrpc.Schema do
   @type t :: %__MODULE__{
           package: String.t() | nil,
           syntax: atom(),
+          edition: String.t() | nil,
+          features: map(),
           services: %{String.t() => Service.t()},
           messages: %{String.t() => Message.t()},
           enums: %{String.t() => SchemaEnum.t()},
@@ -160,6 +164,8 @@ defmodule SimpleGrpc.Schema do
     %__MODULE__{
       package: s1.package || s2.package,
       syntax: s1.syntax || s2.syntax || :proto3,
+      edition: s1.edition || s2.edition,
+      features: Map.merge(s2.features || %{}, s1.features || %{}),
       services: Map.merge(s1.services, s2.services),
       messages: Map.merge(s1.messages, s2.messages),
       enums: Map.merge(s1.enums, s2.enums),
@@ -174,29 +180,53 @@ defmodule SimpleGrpc.Schema do
   Builds a Schema struct from a proto string.
   """
   def from_string(proto_string, opts \\ []) do
-    syntax =
+    {syntax, parser, edition} =
       case Keyword.get(opts, :syntax) do
         nil ->
           cond do
-            Regex.match?(~r/.*syntax\s*=\s*["']proto2["'].*/, proto_string) -> :proto2
-            true -> :proto3
+            Regex.match?(~r/.*syntax\s*=\s*["']proto2["'].*/, proto_string) ->
+              {:proto2, SimpleGrpc.Parser.Proto2, nil}
+
+            captures =
+                Regex.named_captures(
+                  ~r/.*(?:syntax\s*=\s*["']editions["']|edition\s*=\s*["'](?<edition>[^"']+)["']).*/,
+                  proto_string
+                ) ->
+              ed = Map.get(captures, "edition")
+              edition = if is_nil(ed) or ed == "", do: "2023", else: ed
+              {:editions, SimpleGrpc.Parser.Editions, edition}
+
+            true ->
+              {:proto3, SimpleGrpc.Parser.Proto3, nil}
           end
 
+        :proto2 ->
+          {:proto2, SimpleGrpc.Parser.Proto2, nil}
+
+        :editions ->
+          {:editions, SimpleGrpc.Parser.Editions, Keyword.get(opts, :edition, "2023")}
+
+        {:editions, ed} ->
+          {:editions, SimpleGrpc.Parser.Editions, ed}
+
         s ->
-          s
+          {s, SimpleGrpc.Parser.Proto3, nil}
       end
 
-    parser = if syntax == :proto2, do: SimpleGrpc.Parser.Proto2, else: SimpleGrpc.Parser.Proto3
+    if syntax == :editions and edition not in ["2023", "2024"] do
+      {:error,
+       "invalid proto file, unsupported protobuf edition: #{inspect(edition)} (supported editions: 2023, 2024)"}
+    else
+      case parser.parse(proto_string) do
+        {:ok, ast, "", %{}, _, _} ->
+          {:ok, from_ast(ast, syntax: syntax, edition: edition)}
 
-    case parser.parse(proto_string) do
-      {:ok, ast, "", %{}, _, _} ->
-        {:ok, from_ast(ast, syntax: syntax)}
+        {:ok, _ast, rest, _, _, _} ->
+          {:error, "incomplete parse, remaining: #{inspect(rest)}"}
 
-      {:ok, _ast, rest, _, _, _} ->
-        {:error, "incomplete parse, remaining: #{inspect(rest)}"}
-
-      err ->
-        {:error, "failed to parse proto string: #{inspect(err)}"}
+        err ->
+          {:error, "failed to parse proto string: #{inspect(err)}"}
+      end
     end
   end
 
@@ -204,7 +234,19 @@ defmodule SimpleGrpc.Schema do
   Builds a Schema struct from parser AST.
   """
   def from_ast(ast, opts \\ []) when is_list(ast) do
-    syntax = Keyword.get(opts, :syntax, :proto3)
+    edition =
+      Keyword.get(opts, :edition) ||
+        Enum.find_value(ast, fn
+          {:edition, ed} when is_binary(ed) -> ed
+          _ -> nil
+        end)
+
+    syntax =
+      cond do
+        edition != nil -> :editions
+        Keyword.has_key?(opts, :syntax) -> Keyword.get(opts, :syntax)
+        true -> :proto3
+      end
 
     package =
       Enum.find_value(ast, fn
@@ -311,9 +353,13 @@ defmodule SimpleGrpc.Schema do
         _, acc -> acc
       end)
 
+    features = Field.extract_features(options, default_features_for_syntax(syntax, edition))
+
     %__MODULE__{
       package: package,
       syntax: syntax,
+      edition: edition,
+      features: features,
       services: services,
       messages: messages,
       enums: enums,
@@ -369,8 +415,16 @@ defmodule SimpleGrpc.Schema do
   Links message submessage_desc and enum_desc on field descriptors and builds fast default_map.
   """
   def finalize_schema(%__MODULE__{messages: messages} = schema) do
+    file_features =
+      Field.extract_features(
+        schema.options,
+        default_features_for_syntax(schema.syntax, schema.edition)
+      )
+
     linked_messages =
       Enum.map(messages, fn {name, msg} ->
+        msg_features = Field.extract_features(msg.options, file_features)
+
         linked_fields =
           Enum.map(msg.fields, fn
             %Field{kind: :oneof, fields: subfields} = oneof_f ->
@@ -378,17 +432,25 @@ defmodule SimpleGrpc.Schema do
 
               linked_sub =
                 Enum.map(subfields, fn f ->
+                  field_features = Field.extract_features(f.options, msg_features)
                   siblings = List.delete(subfield_names, f.name)
 
                   f
                   |> Map.put(:oneof_siblings, siblings)
+                  |> Map.put(:features, field_features)
+                  |> apply_features_to_field(schema.syntax)
                   |> link_field_descriptors(schema)
                 end)
 
-              %{oneof_f | fields: linked_sub}
+              %{oneof_f | fields: linked_sub, features: msg_features}
 
             %Field{} = f ->
-              link_field_descriptors(f, schema)
+              field_features = Field.extract_features(f.options, msg_features)
+
+              f
+              |> Map.put(:features, field_features)
+              |> apply_features_to_field(schema.syntax)
+              |> link_field_descriptors(schema)
           end)
 
         fbn =
@@ -424,14 +486,10 @@ defmodule SimpleGrpc.Schema do
                 if field.prefix == :repeated do
                   Map.put(acc, field.name, [])
                 else
-                  if field.prefix == :optional do
-                    Map.put(acc, field.name, field.default_value)
+                  if field.prefix == :required do
+                    Map.put(acc, field.name, nil)
                   else
-                    if field.prefix == :required do
-                      Map.put(acc, field.name, nil)
-                    else
-                      Map.put(acc, field.name, field.default_value)
-                    end
+                    Map.put(acc, field.name, field.default_value)
                   end
                 end
             end
@@ -455,14 +513,104 @@ defmodule SimpleGrpc.Schema do
              fields_by_name: fbn_name,
              default_map: default_map,
              repeated_fields: repeated_fields,
-             required_fields: required_fields
+             required_fields: required_fields,
+             features: msg_features
          }}
       end)
       |> Map.new()
 
-    finalized = %{schema | messages: linked_messages}
+    finalized = %{schema | messages: linked_messages, features: file_features}
     SimpleGrpc.Compiler.compile_schema(finalized)
   end
+
+  def default_features_for_syntax(syntax, _edition) do
+    case syntax do
+      :editions ->
+        %{
+          field_presence: :explicit,
+          repeated_field_encoding: :packed,
+          enum_type: :open,
+          utf8_validation: :verify,
+          message_encoding: :length_prefixed,
+          json_format: :allow
+        }
+
+      :proto2 ->
+        %{
+          field_presence: :explicit,
+          repeated_field_encoding: :expanded,
+          enum_type: :closed,
+          utf8_validation: :none
+        }
+
+      _ ->
+        %{
+          field_presence: :implicit,
+          repeated_field_encoding: :packed,
+          enum_type: :open,
+          utf8_validation: :verify
+        }
+    end
+  end
+
+  defp apply_features_to_field(%Field{kind: :field} = f, syntax) do
+    has_explicit_presence_option =
+      Map.has_key?(f.options, "features.field_presence") or
+        Map.has_key?(f.options, "(features.field_presence)") or
+        Map.has_key?(f.options, :features_field_presence)
+
+    prefix =
+      cond do
+        f.prefix == :repeated ->
+          :repeated
+
+        syntax == :editions ->
+          case f.features[:field_presence] do
+            :legacy_required -> :required
+            :implicit -> :implicit
+            :explicit -> :optional
+            _ -> :optional
+          end
+
+        has_explicit_presence_option and f.features[:field_presence] == :legacy_required ->
+          :required
+
+        has_explicit_presence_option and f.features[:field_presence] == :implicit ->
+          :implicit
+
+        has_explicit_presence_option and f.features[:field_presence] == :explicit ->
+          :optional
+
+        true ->
+          f.prefix
+      end
+
+    is_packable =
+      case Map.get(f.options, :packed) do
+        nil ->
+          case f.features[:repeated_field_encoding] do
+            :expanded ->
+              false
+
+            :packed ->
+              Field.compute_is_packable(f.type)
+
+            _ ->
+              if syntax == :proto2 do
+                false
+              else
+                Field.compute_is_packable(f.type)
+              end
+          end
+
+        val ->
+          val == true or val == "true"
+      end
+
+    %{f | prefix: prefix, is_packable: is_packable}
+  end
+
+  defp apply_features_to_field(f, _syntax), do: f
 
   defp link_field_descriptors(%Field{type: type, number: num} = field, schema)
        when is_binary(type) do
@@ -486,6 +634,12 @@ defmodule SimpleGrpc.Schema do
             Map.has_key?(field.options, :packed) ->
               field.options[:packed] in [true, "true"]
 
+            field.features[:repeated_field_encoding] == :expanded ->
+              false
+
+            field.features[:repeated_field_encoding] == :packed and enum_desc != nil ->
+              true
+
             schema.syntax == :proto2 ->
               false
 
@@ -503,7 +657,7 @@ defmodule SimpleGrpc.Schema do
                 resolve_enum_default(field.default_value, enum_desc)
               else
                 if field.prefix == :optional do
-                  nil
+                  if schema.syntax == :editions, do: enum_desc.zero_atom || 0, else: nil
                 else
                   enum_desc.zero_atom || 0
                 end
@@ -534,6 +688,12 @@ defmodule SimpleGrpc.Schema do
             Map.has_key?(field.options, :packed) ->
               field.options[:packed] in [true, "true"]
 
+            field.features[:repeated_field_encoding] == :expanded ->
+              false
+
+            field.features[:repeated_field_encoding] == :packed ->
+              is_packable_type(type)
+
             schema.syntax == :proto2 ->
               false
 
@@ -545,6 +705,9 @@ defmodule SimpleGrpc.Schema do
           cond do
             Map.has_key?(field.options, :default) or Map.has_key?(field.options, "default") ->
               field.default_value
+
+            schema.syntax == :editions and field.prefix == :optional ->
+              default_scalar_type(type)
 
             field.prefix == :optional ->
               nil
@@ -731,6 +894,22 @@ defmodule SimpleGrpc.Schema do
 
   defp load_file_with_imports(file_path, follow_imports, import_paths, visited, opts) do
     case SimpleGrpc.Parser.parse(file_path) do
+      {:ok, {:editions, edition}, ast} ->
+        base_schema = from_ast(ast, syntax: :editions, edition: edition)
+        base_schema = %{base_schema | files: [Path.expand(file_path)]}
+
+        if follow_imports and base_schema.imports != [] do
+          resolve_and_merge_imports(
+            base_schema,
+            file_path,
+            import_paths,
+            visited,
+            opts
+          )
+        else
+          {:ok, base_schema}
+        end
+
       {:ok, syntax, ast} ->
         base_schema = from_ast(ast, syntax: syntax)
         base_schema = %{base_schema | files: [Path.expand(file_path)]}

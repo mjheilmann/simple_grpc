@@ -24,7 +24,8 @@ defmodule SimpleGrpc.Schema.Field do
     :default_value,
     :submessage_desc,
     :enum_desc,
-    options: %{}
+    options: %{},
+    features: %{}
   ]
 
   @type t :: %__MODULE__{
@@ -45,7 +46,8 @@ defmodule SimpleGrpc.Schema.Field do
           default_value: any(),
           submessage_desc: any(),
           enum_desc: any(),
-          options: map()
+          options: map(),
+          features: map()
         }
 
   @doc """
@@ -61,15 +63,36 @@ defmodule SimpleGrpc.Schema.Field do
     [type, name, number | rest] = items
 
     options = extract_field_options(rest)
+    features = extract_features(options)
     deprecated = Map.get(options, :deprecated, false)
+
+    has_explicit_presence =
+      Map.has_key?(options, "features.field_presence") or
+        Map.has_key?(options, "(features.field_presence)") or
+        Map.has_key?(options, :features_field_presence)
+
+    # If field presence is explicitly legacy_required, treat prefix as :required
+    prefix =
+      cond do
+        has_explicit_presence and features[:field_presence] == :legacy_required -> :required
+        prefix != nil -> prefix
+        has_explicit_presence and features[:field_presence] == :explicit -> :optional
+        true -> prefix
+      end
 
     wire_type = compute_wire_type(type)
     tag_bytes = if wire_type && is_integer(number), do: encode_tag(number, wire_type), else: nil
 
     is_packable =
       case Map.get(options, :packed) do
-        nil -> compute_is_packable(type)
-        val -> val == true or val == "true"
+        nil ->
+          case features[:repeated_field_encoding] do
+            :expanded -> false
+            _ -> compute_is_packable(type)
+          end
+
+        val ->
+          val == true or val == "true"
       end
 
     default_value =
@@ -92,6 +115,7 @@ defmodule SimpleGrpc.Schema.Field do
       prefix: prefix,
       deprecated: deprecated,
       options: options,
+      features: features,
       wire_type: wire_type,
       tag_bytes: tag_bytes,
       is_packable: is_packable,
@@ -264,4 +288,35 @@ defmodule SimpleGrpc.Schema.Field do
           tag >>> 21::7>>
     end
   end
+
+  def extract_features(options, base \\ %{})
+
+  def extract_features(options, base) when is_map(options) do
+    Enum.reduce(options, base, fn {k, v}, acc ->
+      clean_k =
+        k
+        |> to_string()
+        |> String.replace(~r/[()]/, "")
+        |> String.trim()
+
+      val_atom =
+        cond do
+          is_atom(v) -> v |> Atom.to_string() |> String.downcase() |> String.to_atom()
+          is_binary(v) -> v |> String.downcase() |> String.to_atom()
+          true -> v
+        end
+
+      case clean_k do
+        "features.field_presence" -> Map.put(acc, :field_presence, val_atom)
+        "features.repeated_field_encoding" -> Map.put(acc, :repeated_field_encoding, val_atom)
+        "features.enum_type" -> Map.put(acc, :enum_type, val_atom)
+        "features.utf8_validation" -> Map.put(acc, :utf8_validation, val_atom)
+        "features.message_encoding" -> Map.put(acc, :message_encoding, val_atom)
+        "features.json_format" -> Map.put(acc, :json_format, val_atom)
+        _ -> acc
+      end
+    end)
+  end
+
+  def extract_features(_, base), do: base
 end

@@ -196,12 +196,19 @@ defmodule SimpleGrpc.Compiler do
     unknown_field_clauses = [
       quote do
         defp unquote(decode_loop_fn)(binary, acc) when is_binary(binary) do
+          orig_len = byte_size(binary)
           {tag, rest1} = SimpleGrpc.Protobuf.decode_varint(binary)
           wire_type = tag &&& 7
 
           case SimpleGrpc.Protobuf.skip_wire_value(rest1, wire_type) do
-            {:ok, rest2} -> unquote(decode_loop_fn)(rest2, acc)
-            {:error, _} -> acc
+            {:ok, rest2} ->
+              consumed_len = orig_len - byte_size(rest2)
+              unknown_wire = :binary.part(binary, 0, consumed_len)
+              unknowns = Map.get(acc, :__unknown_fields__, []) ++ [unknown_wire]
+              unquote(decode_loop_fn)(rest2, Map.put(acc, :__unknown_fields__, unknowns))
+
+            {:error, _} ->
+              acc
           end
         end
       end
@@ -223,7 +230,14 @@ defmodule SimpleGrpc.Compiler do
       unquote_splicing(unknown_field_clauses)
 
       def unquote(encode_fn)(data) when is_map(data) do
-        [unquote_splicing(encode_exprs)]
+        unknown_iodata =
+          case Map.get(data, :__unknown_fields__) || Map.get(data, "__unknown_fields__") do
+            nil -> []
+            bin when is_binary(bin) -> bin
+            list when is_list(list) -> list
+          end
+
+        [unquote_splicing(encode_exprs), unknown_iodata]
       end
 
       def unquote(encode_fn)(data) when is_list(data) do
