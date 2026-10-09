@@ -444,13 +444,15 @@ defmodule SimpleGrpc.Reflection.Server do
   # Pre-compiled Reflection Schemas (v1 and v1alpha)
   # ---------------------------------------------------------------------------
 
-  def reflection_v1_schema do
-    {:ok, schema} = Schema.from_file("priv/protos/grpc/reflection/v1/reflection.proto")
-    schema
-  end
+  @external_resource "priv/protos/grpc/reflection/v1/reflection.proto"
+  @external_resource "priv/protos/grpc/reflection/v1alpha/reflection.proto"
 
-  def reflection_v1alpha_schema do
-    {:ok, schema} = Schema.from_file("priv/protos/grpc/reflection/v1alpha/reflection.proto")
-    schema
-  end
+  {:ok, v1_schema} = Schema.from_file("priv/protos/grpc/reflection/v1/reflection.proto")
+  {:ok, v1alpha_schema} = Schema.from_file("priv/protos/grpc/reflection/v1alpha/reflection.proto")
+
+  @v1_schema v1_schema
+  @v1alpha_schema v1alpha_schema
+
+  def reflection_v1_schema, do: @v1_schema
+  def reflection_v1alpha_schema, do: @v1alpha_schema
 end

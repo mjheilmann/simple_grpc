@@ -1,7 +1,6 @@
 defmodule SimpleGrpc.Client.PoolTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  alias SimpleGrpc.Registry
   alias SimpleGrpc.Protobuf
   alias SimpleGrpc.Schema
 
@@ -39,7 +38,13 @@ defmodule SimpleGrpc.Client.PoolTest do
   end
 
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, sup_pid} =
+      Bandit.start_link(
+        plug: {SimpleGrpc.Plug, services: [PoolTestServer]},
+        port: 0,
+        startup_log: false
+      )
+
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
@@ -49,12 +54,6 @@ defmodule SimpleGrpc.Client.PoolTest do
     {:ok, schema} = Schema.from_file(@proto_file)
 
     %{schema: schema, port: port}
-  end
-
-  setup do
-    Registry.clear()
-    SimpleGrpc.register_service(PoolTestServer)
-    :ok
   end
 
   describe "NimblePool-backed Client Connection Pooling" do

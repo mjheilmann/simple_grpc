@@ -1,5 +1,5 @@
 defmodule SimpleGrpc.IsolatedPlugTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   defmodule ServiceA do
     use SimpleGrpc.Server,
@@ -29,13 +29,15 @@ defmodule SimpleGrpc.IsolatedPlugTest do
     {:ok, pid_a} =
       Bandit.start_link(
         plug: {SimpleGrpc.Plug, services: [ServiceA], reflection: true},
-        port: 0
+        port: 0,
+        startup_log: false
       )
 
     {:ok, pid_b} =
       Bandit.start_link(
         plug: {SimpleGrpc.Plug, services: [ServiceB], reflection: true},
-        port: 0
+        port: 0,
+        startup_log: false
       )
 
     {:ok, {_ip_a, port_a}} = ThousandIsland.listener_info(pid_a)

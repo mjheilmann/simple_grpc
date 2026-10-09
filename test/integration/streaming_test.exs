@@ -1,7 +1,5 @@
 defmodule SimpleGrpc.StreamingIntegrationTest do
-  use ExUnit.Case, async: false
-
-  alias SimpleGrpc.Registry
+  use ExUnit.Case, async: true
 
   @proto_file "priv/protos/streaming/streaming_service.proto"
 
@@ -60,7 +58,13 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
       raise "grpcurl executable not found"
     end
 
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, sup_pid} =
+      Bandit.start_link(
+        plug: {SimpleGrpc.Plug, services: [FullStreamingServer]},
+        port: 0,
+        startup_log: false
+      )
+
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
@@ -70,12 +74,6 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
     end)
 
     %{grpcurl: grpcurl_path, port: port}
-  end
-
-  setup do
-    Registry.clear()
-    SimpleGrpc.register_service(FullStreamingServer)
-    :ok
   end
 
   test "Server Streaming: Client sends 1 request, server returns stream of 3 chunks", %{

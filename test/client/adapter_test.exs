@@ -1,7 +1,6 @@
 defmodule SimpleGrpc.Client.AdapterTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  alias SimpleGrpc.Registry
   alias SimpleGrpc.Protobuf
   alias SimpleGrpc.Schema
 
@@ -39,7 +38,13 @@ defmodule SimpleGrpc.Client.AdapterTest do
   end
 
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, sup_pid} =
+      Bandit.start_link(
+        plug: {SimpleGrpc.Plug, services: [TestServer]},
+        port: 0,
+        startup_log: false
+      )
+
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
@@ -51,15 +56,10 @@ defmodule SimpleGrpc.Client.AdapterTest do
     %{schema: schema, port: port}
   end
 
-  setup do
-    Registry.clear()
-    SimpleGrpc.register_service(TestServer)
-    :ok
-  end
-
   describe "Direct In-Memory Plug Adapter (Zero TCP)" do
     test "connects and sends unary RPC via in-memory Plug", %{schema: schema} do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} =
+        SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [TestServer]}, adapter: :plug)
 
       req_bytes =
         Protobuf.encode!("StreamRequest", %{message: "DirectPlug", sequence: 10}, schema)
@@ -76,7 +76,8 @@ defmodule SimpleGrpc.Client.AdapterTest do
     end
 
     test "sends streaming request via in-memory Plug", %{schema: schema} do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} =
+        SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [TestServer]}, adapter: :plug)
 
       req_bytes =
         Protobuf.encode!("StreamRequest", %{message: "StreamPing", sequence: 100}, schema)

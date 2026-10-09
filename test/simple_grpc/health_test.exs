@@ -15,7 +15,12 @@ defmodule SimpleGrpc.HealthTest do
   end
 
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: {SimpleGrpc.Plug, health: true}, port: 0)
+    {:ok, sup_pid} =
+      Bandit.start_link(
+        plug: {SimpleGrpc.Plug, health: true},
+        port: 0,
+        startup_log: false
+      )
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->

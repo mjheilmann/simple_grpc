@@ -1,5 +1,5 @@
 defmodule SimpleGrpc.CompressionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias SimpleGrpc.Framing
   alias SimpleGrpc.Client
@@ -42,7 +42,11 @@ defmodule SimpleGrpc.CompressionTest do
 
   setup_all do
     {:ok, sup_pid} =
-      Bandit.start_link(plug: {SimpleGrpc.Plug, services: [CompressionServer]}, port: 0)
+      Bandit.start_link(
+        plug: {SimpleGrpc.Plug, services: [CompressionServer]},
+        port: 0,
+        startup_log: false
+      )
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 

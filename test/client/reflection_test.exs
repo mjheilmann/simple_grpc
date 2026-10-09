@@ -1,8 +1,8 @@
 defmodule SimpleGrpc.Client.ReflectionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  alias SimpleGrpc.{Registry, Schema}
-  alias SimpleGrpc.Reflection.{Descriptor, Server}
+  alias SimpleGrpc.Schema
+  alias SimpleGrpc.Reflection.Descriptor
   alias SimpleGrpc.Client.Reflection, as: ClientReflection
 
   @proto_file "priv/protos/streaming/streaming_service.proto"
@@ -33,8 +33,16 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     end
   end
 
+  @plug_spec {SimpleGrpc.Plug, services: [TestServer], reflection: true}
+
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, sup_pid} =
+      Bandit.start_link(
+        plug: @plug_spec,
+        port: 0,
+        startup_log: false
+      )
+
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
@@ -42,13 +50,6 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     end)
 
     %{port: port}
-  end
-
-  setup do
-    Registry.clear()
-    SimpleGrpc.register_service(TestServer)
-    Server.register()
-    :ok
   end
 
   describe "Descriptor.decode_file_descriptor/1 round-trip" do
@@ -99,7 +100,7 @@ defmodule SimpleGrpc.Client.ReflectionTest do
 
   describe "Client.Reflection with in-memory Plug adapter" do
     test "list_services/2 returns all registered services" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug)
 
       assert {:ok, services} = ClientReflection.list_services(conn)
       assert "streaming.StreamingService" in services
@@ -108,7 +109,7 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     end
 
     test "file_containing_symbol/3 returns binary descriptor protos" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug)
 
       assert {:ok, fdp_list} =
                ClientReflection.file_containing_symbol(conn, "streaming.StreamingService")
@@ -118,7 +119,7 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     end
 
     test "file_containing_symbol/3 returns error when symbol not found" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug)
 
       assert {:error, 5, msg} =
                ClientReflection.file_containing_symbol(conn, "nonexistent.Symbol")
@@ -127,7 +128,7 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     end
 
     test "file_by_filename/3 returns descriptor protos for synthesized and relative filenames" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug)
 
       # Synthesized filename (<package>.proto)
       assert {:ok, fdp_list1} = ClientReflection.file_by_filename(conn, "streaming.proto")
@@ -141,7 +142,7 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     end
 
     test "fetch_schema/2 fetches full schema excluding reflection services by default" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug)
 
       assert {:ok, %Schema{} = schema} = ClientReflection.fetch_schema(conn)
 
@@ -159,7 +160,7 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     end
 
     test "fetch_schema/2 for specific service symbol" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug)
 
       assert {:ok, %Schema{} = schema} =
                ClientReflection.fetch_schema(conn, "streaming.StreamingService")
@@ -172,7 +173,7 @@ defmodule SimpleGrpc.Client.ReflectionTest do
     end
 
     test "fetch_schema/2 with include_reflection: true includes reflection schemas" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug)
 
       assert {:ok, %Schema{} = schema} =
                ClientReflection.fetch_schema(conn, include_reflection: true)

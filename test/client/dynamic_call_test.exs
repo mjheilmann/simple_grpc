@@ -1,8 +1,7 @@
 defmodule SimpleGrpc.Client.DynamicCallTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  alias SimpleGrpc.{Registry, Schema}
-  alias SimpleGrpc.Reflection.Server
+  alias SimpleGrpc.Schema
 
   @proto_file "priv/protos/streaming/streaming_service.proto"
 
@@ -37,8 +36,16 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
     end
   end
 
+  @plug_spec {SimpleGrpc.Plug, services: [TestServer], reflection: true}
+
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, sup_pid} =
+      Bandit.start_link(
+        plug: @plug_spec,
+        port: 0,
+        startup_log: false
+      )
+
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
@@ -49,16 +56,9 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
     %{schema: schema, port: port}
   end
 
-  setup do
-    Registry.clear()
-    SimpleGrpc.register_service(TestServer)
-    Server.register()
-    :ok
-  end
-
   describe "Dynamic Client.call with reflection: true (in-memory Plug)" do
     test "connects with reflection and invokes unary RPC" do
-      {:ok, client} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, reflection: true)
+      {:ok, client} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug, reflection: true)
       assert client.schema != nil
 
       assert {:ok, response} =
@@ -74,7 +74,7 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
     end
 
     test "invokes unary RPC using call! raising on error" do
-      {:ok, client} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, reflection: true)
+      {:ok, client} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug, reflection: true)
 
       response =
         SimpleGrpc.Client.call!(
@@ -88,7 +88,7 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
     end
 
     test "invokes server streaming RPC returning lazy decoded stream" do
-      {:ok, client} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, reflection: true)
+      {:ok, client} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug, reflection: true)
 
       assert {:ok, stream} =
                SimpleGrpc.Client.call(
@@ -104,7 +104,7 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
     end
 
     test "invokes client streaming RPC" do
-      {:ok, client} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, reflection: true)
+      {:ok, client} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug, reflection: true)
 
       req_stream =
         1..4
@@ -122,7 +122,7 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
     end
 
     test "invokes bidirectional streaming RPC" do
-      {:ok, client} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, reflection: true)
+      {:ok, client} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug, reflection: true)
 
       req_stream =
         1..3
@@ -145,7 +145,7 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
   describe "Dynamic Client.call with on-demand reflection discovery" do
     test "dynamically queries reflection when schema is not pre-loaded" do
       # Notice reflection: false / no schema given at connect time
-      {:ok, client} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, client} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug)
       assert client.schema == nil
 
       # call/4 discovers schema via reflection on-demand!
@@ -163,7 +163,7 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
 
   describe "Dynamic Client.call with pre-loaded schema option" do
     test "uses schema passed via opts or connect", %{schema: schema} do
-      {:ok, client} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, schema: schema)
+      {:ok, client} = SimpleGrpc.Client.connect(@plug_spec, adapter: :plug, schema: schema)
       assert client.schema == schema
 
       assert {:ok, response} =
@@ -178,7 +178,7 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
 
     test "auto-resolves schema from proto file path string" do
       {:ok, client} =
-        SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug, schema: @proto_file)
+        SimpleGrpc.Client.connect(@plug_spec, adapter: :plug, schema: @proto_file)
 
       assert is_struct(client.schema, SimpleGrpc.Schema)
       assert Map.has_key?(client.schema.services, "streaming.StreamingService")

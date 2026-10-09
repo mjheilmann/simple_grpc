@@ -1,7 +1,5 @@
 defmodule SimpleGrpc.Client.StreamingTransportTest do
-  use ExUnit.Case, async: false
-
-  alias SimpleGrpc.Registry
+  use ExUnit.Case, async: true
 
   defmodule StreamingServer do
     use SimpleGrpc.Server,
@@ -44,7 +42,13 @@ defmodule SimpleGrpc.Client.StreamingTransportTest do
   end
 
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, sup_pid} =
+      Bandit.start_link(
+        plug: {SimpleGrpc.Plug, services: [StreamingServer]},
+        port: 0,
+        startup_log: false
+      )
+
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
@@ -52,12 +56,6 @@ defmodule SimpleGrpc.Client.StreamingTransportTest do
     end)
 
     %{port: port}
-  end
-
-  setup do
-    Registry.clear()
-    SimpleGrpc.register_service(StreamingServer)
-    :ok
   end
 
   describe "Server Streaming Lazy Consumer (Mint & Plug)" do
@@ -101,7 +99,8 @@ defmodule SimpleGrpc.Client.StreamingTransportTest do
     end
 
     test "Plug: consumes server stream lazily" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} =
+        SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [StreamingServer]}, adapter: :plug)
 
       req =
         StreamingClient.build_request(:server_streaming_call, %{
@@ -137,7 +136,8 @@ defmodule SimpleGrpc.Client.StreamingTransportTest do
     end
 
     test "Plug: streams client request list" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} =
+        SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [StreamingServer]}, adapter: :plug)
 
       req_list = [
         %{message: "A", sequence: 10},

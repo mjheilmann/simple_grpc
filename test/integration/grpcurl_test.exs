@@ -25,7 +25,7 @@ defmodule SimpleGrpc.GrpcurlTest do
       raise "grpcurl executable not found"
     end
 
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0, startup_log: false)
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->

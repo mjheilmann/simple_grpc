@@ -1,7 +1,5 @@
 defmodule SimpleGrpc.ClientDSLTest do
-  use ExUnit.Case, async: false
-
-  alias SimpleGrpc.Registry
+  use ExUnit.Case, async: true
 
   # Define typed Client using SimpleGrpc.Client
   defmodule StreamingClient do
@@ -38,7 +36,13 @@ defmodule SimpleGrpc.ClientDSLTest do
   end
 
   setup_all do
-    {:ok, sup_pid} = Bandit.start_link(plug: SimpleGrpc.Plug, port: 0)
+    {:ok, sup_pid} =
+      Bandit.start_link(
+        plug: {SimpleGrpc.Plug, services: [StreamingServer]},
+        port: 0,
+        startup_log: false
+      )
+
     {:ok, {_ip, port}} = ThousandIsland.listener_info(sup_pid)
 
     on_exit(fn ->
@@ -46,12 +50,6 @@ defmodule SimpleGrpc.ClientDSLTest do
     end)
 
     %{port: port}
-  end
-
-  setup do
-    Registry.clear()
-    SimpleGrpc.register_service(StreamingServer)
-    :ok
   end
 
   describe "Compile-Time Client Generation & Helpers" do
@@ -79,7 +77,8 @@ defmodule SimpleGrpc.ClientDSLTest do
 
   describe "In-Memory Plug Transport with Typed Client" do
     test "Unary RPC call & bang variant" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} =
+        SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [StreamingServer]}, adapter: :plug)
 
       # 1. Map/keyword argument
       {:ok, resp} = StreamingClient.unary_call(conn, %{message: "HelloPlug", sequence: 10})
@@ -101,7 +100,8 @@ defmodule SimpleGrpc.ClientDSLTest do
     end
 
     test "Server Streaming RPC returns typed struct stream" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} =
+        SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [StreamingServer]}, adapter: :plug)
 
       {:ok, resp_stream} =
         StreamingClient.server_streaming_call(conn, %{message: "StreamPing", sequence: 100})
@@ -123,7 +123,8 @@ defmodule SimpleGrpc.ClientDSLTest do
     end
 
     test "Client Streaming RPC aggregates stream of inputs" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} =
+        SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [StreamingServer]}, adapter: :plug)
 
       requests = [
         %{message: "A", sequence: 1},
@@ -141,7 +142,8 @@ defmodule SimpleGrpc.ClientDSLTest do
     end
 
     test "Bidirectional Streaming RPC" do
-      {:ok, conn} = SimpleGrpc.Client.connect(SimpleGrpc.Plug, adapter: :plug)
+      {:ok, conn} =
+        SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [StreamingServer]}, adapter: :plug)
 
       requests = [
         %{message: "Alpha", sequence: 5},
