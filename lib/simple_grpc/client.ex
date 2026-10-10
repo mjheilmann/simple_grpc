@@ -394,6 +394,9 @@ defmodule SimpleGrpc.Client do
                 end
               end
 
+            {:error, status_code, status_msg, rich_status} ->
+              {:error, status_code, status_msg, rich_status}
+
             {:error, status_code, status_msg} ->
               {:error, status_code, status_msg}
 
@@ -412,6 +415,9 @@ defmodule SimpleGrpc.Client do
                 {:error, _code, reason} ->
                   {:error, 2, "Failed to decode response: #{reason}"}
               end
+
+            {:error, status_code, status_msg, rich_status} ->
+              {:error, status_code, status_msg, rich_status}
 
             {:error, status_code, status_msg} ->
               {:error, status_code, status_msg}

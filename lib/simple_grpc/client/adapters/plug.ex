@@ -42,7 +42,7 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
       |> plug_mod.call(plug_opts)
 
     headers = conn.resp_headers
-    {status_code, status_msg} = Framing.extract_grpc_status(headers)
+    {status_code, status_msg, rich_status} = Framing.extract_grpc_status_details(headers)
     resp_encoding = extract_encoding(headers)
 
     if status_code == 0 do
@@ -60,7 +60,11 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
           {:error, 2, reason}
       end
     else
-      {:error, status_code, status_msg}
+      if rich_status do
+        {:error, status_code, status_msg, rich_status}
+      else
+        {:error, status_code, status_msg}
+      end
     end
   end
 
@@ -90,7 +94,7 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
       |> plug_mod.call(plug_opts)
 
     headers = conn.resp_headers
-    {status_code, status_msg} = Framing.extract_grpc_status(headers)
+    {status_code, status_msg, rich_status} = Framing.extract_grpc_status_details(headers)
     resp_encoding = extract_encoding(headers)
 
     if status_code == 0 do
@@ -108,7 +112,11 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
 
       {:ok, stream, headers, []}
     else
-      {:error, status_code, status_msg}
+      if rich_status do
+        {:error, status_code, status_msg, rich_status}
+      else
+        {:error, status_code, status_msg}
+      end
     end
   end
 

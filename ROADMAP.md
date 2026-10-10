@@ -52,9 +52,9 @@ This roadmap outlines key architectural enhancements and features planned for `S
   - [x] Support `grpc-encoding` and `grpc-accept-encoding` headers (`gzip`, `deflate`, `zstd`).
   - [x] Encode/decode the 1-byte compression flag in the 5-byte gRPC framing header.
 
-- [ ] **9. Rich Error Details (`google.rpc.Status`)**
-  - [ ] Support `grpc-status-details-bin` trailing metadata.
-  - [ ] Provide builders for standard error details (`ErrorInfo`, `BadRequest`, `RetryInfo`, `LocalizedMessage`).
+- [x] **9. Rich Error Details (`google.rpc.Status`)**
+  - [x] Support `grpc-status-details-bin` trailing metadata.
+  - [x] Provide builders for standard error details (`ErrorInfo`, `BadRequest`, `RetryInfo`, `LocalizedMessage`, `DebugInfo`, `QuotaFailure`, `PreconditionFailure`, `ResourceInfo`, `Help`, `RequestInfo`).
 
 ---
 

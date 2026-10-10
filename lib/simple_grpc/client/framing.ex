@@ -7,4 +7,5 @@ defmodule SimpleGrpc.Client.Framing do
   defdelegate unframe(binary), to: SimpleGrpc.Framing
   defdelegate unframe(binary, opts), to: SimpleGrpc.Framing
   defdelegate extract_grpc_status(headers_or_trailers), to: SimpleGrpc.Framing
+  defdelegate extract_grpc_status_details(headers_or_trailers), to: SimpleGrpc.Framing
 end

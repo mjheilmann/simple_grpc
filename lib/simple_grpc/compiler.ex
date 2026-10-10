@@ -773,6 +773,18 @@ defmodule SimpleGrpc.Compiler do
           ]
         end
 
+      # Map field
+      {2, {:map, _k_type, _v_type}, _} ->
+        [
+          quote do
+            defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
+              {{k, v}, rest2} = SimpleGrpc.Protobuf.decode_map_entry(rest1, unquote(Macro.escape(field)))
+              curr_map = Map.get(acc, unquote(field_name), %{})
+              unquote(loop_fn)(rest2, %{acc | unquote(field_name) => Map.put(curr_map, k, v)})
+            end
+          end
+        ]
+
       _other ->
         []
     end
@@ -882,6 +894,24 @@ defmodule SimpleGrpc.Compiler do
         %{unquote(name_atom) => v} when not is_nil(v) -> unquote(encode_expr)
         %{unquote(name_str) => v} when not is_nil(v) -> unquote(encode_expr)
         _ -> throw({:error, unquote("missing required field '#{name_atom}'")})
+      end
+    end
+  end
+
+  defp generate_field_encode_expr(%Field{kind: :map} = field, _schema) do
+    name_atom = field.name
+    name_str = Atom.to_string(name_atom)
+
+    quote do
+      case data do
+        %{unquote(name_atom) => map} when is_map(map) and map_size(map) > 0 ->
+          SimpleGrpc.Protobuf.encode_map_entries(unquote(Macro.escape(field)), map, nil, nil)
+
+        %{unquote(name_str) => map} when is_map(map) and map_size(map) > 0 ->
+          SimpleGrpc.Protobuf.encode_map_entries(unquote(Macro.escape(field)), map, nil, nil)
+
+        _ ->
+          []
       end
     end
   end

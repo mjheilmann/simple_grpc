@@ -451,6 +451,9 @@ defmodule SimpleGrpc.Client.DSL do
                 {:error, 2, "Failed to decode response: #{reason}"}
             end
 
+          {:error, status_code, status_msg, rich_status} ->
+            {:error, status_code, status_msg, rich_status}
+
           {:error, status_code, status_msg} ->
             {:error, status_code, status_msg}
 
@@ -605,6 +608,9 @@ defmodule SimpleGrpc.Client.DSL do
                   {:error, 2, "Failed to decode response: #{reason}"}
               end
             end
+
+          {:error, status_code, status_msg, rich_status} ->
+            {:error, status_code, status_msg, rich_status}
 
           {:error, status_code, status_msg} ->
             {:error, status_code, status_msg}

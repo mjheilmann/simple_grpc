@@ -494,7 +494,8 @@ defmodule SimpleGrpc.Protobuf do
     end
   end
 
-  defp encode_map_entries(field, map, schema_ctx, msg_desc) when is_map(map) do
+  @doc false
+  def encode_map_entries(field, map, schema_ctx, msg_desc) when is_map(map) do
     Enum.map(map, fn {k, v} ->
       k_bytes = encode_single_field(1, field.key_type, k, schema_ctx, msg_desc)
       v_bytes = encode_single_field(2, field.val_type, v, schema_ctx, msg_desc)
@@ -502,6 +503,11 @@ defmodule SimpleGrpc.Protobuf do
       tag = field.tag_bytes || encode_tag(field.number, 2)
       [tag, encode_varint(entry_len), k_bytes, v_bytes]
     end)
+  end
+
+  @doc false
+  def decode_map_entry(binary, %Field{} = field, schema_ctx \\ nil) do
+    decode_field_value(binary, 2, field, schema_ctx, nil)
   end
 
   @doc false
@@ -558,6 +564,16 @@ defmodule SimpleGrpc.Protobuf do
 
   defp encode_length_delimited_payload("bytes", value, _schema_ctx) when is_binary(value),
     do: value
+
+  defp encode_length_delimited_payload({:map, key_type, val_type}, value, schema_ctx) when is_map(value) do
+    Enum.map(value, fn {k, v} ->
+      k_bytes = encode_single_field(1, key_type, k, schema_ctx, nil)
+      v_bytes = encode_single_field(2, val_type, v, schema_ctx, nil)
+      entry_len = IO.iodata_length(k_bytes) + IO.iodata_length(v_bytes)
+      tag = encode_tag(1, 2)
+      [tag, encode_varint(entry_len), k_bytes, v_bytes]
+    end)
+  end
 
   defp encode_length_delimited_payload(type, value, schema_ctx) do
     # Embedded sub-message

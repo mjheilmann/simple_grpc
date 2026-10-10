@@ -210,6 +210,9 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
         {:done, next_conn, new_streams} ->
           {:reply, :done, %{state | conn: next_conn, streams: new_streams}}
 
+        {:error, next_conn, new_streams, status, msg, rich_status} ->
+          {:reply, {:error, status, msg, rich_status}, %{state | conn: next_conn, streams: new_streams}}
+
         {:error, next_conn, new_streams, status, msg} ->
           {:reply, {:error, status, msg}, %{state | conn: next_conn, streams: new_streams}}
 
@@ -366,7 +369,7 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
             if Map.has_key?(req_acc, ref) do
               req_meta = Map.get(req_acc, ref)
               all_headers = req_meta.headers ++ req_meta.trailers
-              {grpc_status, grpc_msg} = Framing.extract_grpc_status(all_headers)
+              {grpc_status, grpc_msg, rich_status} = Framing.extract_grpc_status_details(all_headers)
               resp_encoding = extract_encoding(all_headers)
 
               res =
@@ -385,7 +388,11 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
                       {:error, 2, reason}
                   end
                 else
-                  {:error, grpc_status, grpc_msg}
+                  if rich_status do
+                    {:error, grpc_status, grpc_msg, rich_status}
+                  else
+                    {:error, grpc_status, grpc_msg}
+                  end
                 end
 
               GenServer.reply(req_meta.from, res)
@@ -559,15 +566,19 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
 
         {:incomplete, _} ->
           if stream_meta.done do
-            {status, msg} =
-              Framing.extract_grpc_status(stream_meta.trailers ++ stream_meta.headers)
+            all_headers = stream_meta.trailers ++ stream_meta.headers
+            {status, msg, rich_status} = Framing.extract_grpc_status_details(all_headers)
 
             new_streams = Map.delete(streams, request_ref)
 
             if status == 0 do
               {:done, conn, new_streams}
             else
-              {:error, conn, new_streams, status, msg}
+              if rich_status do
+                {:error, conn, new_streams, status, msg, rich_status}
+              else
+                {:error, conn, new_streams, status, msg}
+              end
             end
           else
             receive do

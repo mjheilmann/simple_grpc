@@ -328,6 +328,36 @@ defmodule SimpleGrpc.Plug do
               end
             end
 
+          {:error, %SimpleGrpc.RPC.Status{} = status} ->
+            emit_telemetry_stop(
+              conn,
+              path,
+              route,
+              initial_payload_for_telemetry,
+              nil,
+              status.code,
+              status.message,
+              start_time
+            )
+
+            send_trailers_only(conn, status)
+
+          {:error, status_code, message, details} ->
+            msg_str = to_string(message)
+
+            emit_telemetry_stop(
+              conn,
+              path,
+              route,
+              initial_payload_for_telemetry,
+              nil,
+              status_code,
+              msg_str,
+              start_time
+            )
+
+            send_trailers_only(conn, status_code, msg_str, details)
+
           {:error, status_code, message} ->
             msg_str = to_string(message)
 
@@ -357,6 +387,14 @@ defmodule SimpleGrpc.Plug do
           emit_telemetry_exception(conn, path, route, :error, e, __STACKTRACE__, start_time)
           send_trailers_only(conn, 13, "Internal server error: #{msg_str}")
       catch
+        :throw, {:error, %SimpleGrpc.RPC.Status{} = status} ->
+          emit_telemetry_stop(conn, path, route, nil, nil, status.code, status.message, start_time)
+          send_trailers_only(conn, status)
+
+        :throw, {:error, code, msg, details} ->
+          emit_telemetry_stop(conn, path, route, nil, nil, code, to_string(msg), start_time)
+          send_trailers_only(conn, code, to_string(msg), details)
+
         :throw, {:error, code, msg} ->
           emit_telemetry_stop(conn, path, route, nil, nil, code, to_string(msg), start_time)
           send_trailers_only(conn, code, to_string(msg))
@@ -613,17 +651,42 @@ defmodule SimpleGrpc.Plug do
   defp maybe_put_encoding_header(conn, enc) when is_atom(enc), do: put_resp_header(conn, "grpc-encoding", to_string(enc))
   defp maybe_put_encoding_header(conn, _), do: conn
 
-  defp send_trailers_only(conn, status_code, status_message) do
+  defp send_trailers_only(conn, status_or_code, status_message \\ "", details \\ nil)
+
+  defp send_trailers_only(conn, %SimpleGrpc.RPC.Status{} = status, _msg, _details) do
+    send_trailers_only(conn, status.code, status.message, status.details)
+  end
+
+  defp send_trailers_only(conn, status_code, status_message, details) do
     code_int = Status.code(status_code)
     accept_enc_header = SimpleGrpc.Compression.accept_encoding_header()
 
-    headers = [
+    details_bin =
+      cond do
+        is_list(details) and details != [] ->
+          Status.to_status_details_bin({code_int, status_message, details})
+
+        is_binary(details) and details != "" ->
+          details
+
+        true ->
+          nil
+      end
+
+    base_headers = [
       {":status", "200"},
       {"content-type", "application/grpc"},
       {"grpc-accept-encoding", accept_enc_header},
       {"grpc-status", to_string(code_int)},
       {"grpc-message", to_string(status_message)}
     ]
+
+    headers =
+      if details_bin do
+        base_headers ++ [{"grpc-status-details-bin", details_bin}]
+      else
+        base_headers
+      end
 
     case conn.adapter do
       {Bandit.Adapter,
@@ -634,12 +697,16 @@ defmodule SimpleGrpc.Plug do
         %{conn | state: :sent}
 
       _other ->
-        conn
-        |> put_resp_header("content-type", "application/grpc")
-        |> put_resp_header("grpc-accept-encoding", accept_enc_header)
-        |> put_resp_header("grpc-status", to_string(code_int))
-        |> put_resp_header("grpc-message", to_string(status_message))
-        |> send_resp(200, "")
+        conn_with_headers =
+          Enum.reduce(headers, conn, fn {k, v}, acc ->
+            if String.starts_with?(k, ":") do
+              acc
+            else
+              put_resp_header(acc, k, v)
+            end
+          end)
+
+        send_resp(conn_with_headers, 200, "")
     end
   end
 

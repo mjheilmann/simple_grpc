@@ -73,6 +73,15 @@ defmodule SimpleGrpc.Dispatcher do
 
   defp normalize_result({:ok, _} = ok), do: ok
 
+  defp normalize_result({:error, %SimpleGrpc.RPC.Status{} = status}),
+    do: {:error, status}
+
+  defp normalize_result({:error, code, msg, details}) when is_integer(code) and is_binary(msg) and is_list(details),
+    do: {:error, code, msg, details}
+
+  defp normalize_result({:error, code, msg, details}) when is_atom(code) and is_binary(msg) and is_list(details),
+    do: {:error, SimpleGrpc.Status.code(code), msg, details}
+
   defp normalize_result({:error, code, msg}) when is_integer(code) and is_binary(msg),
     do: {:error, code, msg}
 
