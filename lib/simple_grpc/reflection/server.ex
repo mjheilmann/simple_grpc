@@ -377,10 +377,17 @@ defmodule SimpleGrpc.Reflection.Server do
     end)
   end
 
+  defp schema_contains_symbol?(_schema, nil), do: false
+  defp schema_contains_symbol?(_schema, {:map, _, _}), do: false
+
+  defp schema_contains_symbol?(schema, sym) when is_atom(sym),
+    do: schema_contains_symbol?(schema, to_string(sym))
+
   defp schema_contains_symbol?(
          %Schema{services: services, messages: messages, enums: enums, package: package},
          symbol
-       ) do
+       )
+       when is_binary(symbol) do
     clean_sym = String.trim_leading(symbol, ".")
 
     # 1. Match service

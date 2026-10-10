@@ -1,0 +1,18 @@
+edition = "2023";
+
+package editions_service;
+
+service EditionsTestService {
+  rpc Execute (EditionsRequest) returns (EditionsResponse);
+}
+
+message EditionsRequest {
+  string request_id = 1 [features.field_presence = LEGACY_REQUIRED];
+  string payload = 2;
+  repeated int32 tags = 3 [features.repeated_field_encoding = EXPANDED];
+}
+
+message EditionsResponse {
+  string confirmation_id = 1;
+  int32 processed_count = 2;
+}

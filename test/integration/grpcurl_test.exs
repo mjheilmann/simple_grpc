@@ -280,6 +280,87 @@ defmodule SimpleGrpc.GrpcurlTest do
     assert output =~ ~s("San Francisco")
   end
 
+  test "grpcurl invokes proto2 service using local -proto file", %{grpcurl: grpcurl, port: port} do
+    proto2_file = "priv/protos/proto2_features/proto2_features.proto"
+    {:ok, schema} = Schema.from_file(proto2_file, import_paths: ["priv/protos"])
+
+    SimpleGrpc.register_service(schema, %{
+      process_proto2: fn req ->
+        name = req[:name] || "missing"
+        port_val = req[:port] || -1
+        req_field = req[:required_field]
+
+        {:ok,
+         %{
+           success: true,
+           message: "Processed proto2: #{req_field} | name=#{name} | port=#{port_val}"
+         }}
+      end
+    })
+
+    {output, 0} =
+      System.cmd(
+        grpcurl,
+        [
+          "-plaintext",
+          "-proto",
+          proto2_file,
+          "-import-path",
+          "priv/protos",
+          "-d",
+          ~s({"requiredField": "proto2_direct", "requiredId": 77}),
+          "127.0.0.1:#{port}",
+          "proto2_features.Proto2Service/ProcessProto2"
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert output =~ ~s("success": true)
+    assert output =~ "Processed proto2: proto2_direct"
+    assert output =~ "name=unknown"
+    assert output =~ "port=8080"
+  end
+
+  test "grpcurl invokes edition 2023 service using local -proto file", %{
+    grpcurl: grpcurl,
+    port: port
+  } do
+    edition_proto = "priv/protos/editions/editions_service.proto"
+    {:ok, schema} = Schema.from_file(edition_proto)
+
+    SimpleGrpc.register_service(schema, %{
+      execute: fn req ->
+        req_id = req[:request_id]
+        payload = req[:payload] || ""
+        tags = req[:tags] || []
+
+        {:ok,
+         %{
+           confirmation_id: "file_ed_#{req_id}_#{payload}",
+           processed_count: length(tags)
+         }}
+      end
+    })
+
+    {output, 0} =
+      System.cmd(
+        grpcurl,
+        [
+          "-plaintext",
+          "-proto",
+          edition_proto,
+          "-d",
+          ~s({"requestId": "ed-file-1", "payload": "direct", "tags": [10, 20, 30, 40]}),
+          "127.0.0.1:#{port}",
+          "editions_service.EditionsTestService/Execute"
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert output =~ ~s("confirmationId": "file_ed_ed-file-1_direct")
+    assert output =~ ~s("processedCount": 4)
+  end
+
   describe "gRPC Server Reflection over HTTP/2 (Zero local -proto files)" do
     setup do
       # Enable reflection on the live server
@@ -333,6 +414,99 @@ defmodule SimpleGrpc.GrpcurlTest do
       assert output =~ ~s("result": "Processed: Discovered via Reflection!")
       assert output =~ ~s("sequence": 101)
       assert output =~ ~s("isFinal": true)
+    end
+
+    test "grpcurl discovers and invokes proto2 service via reflection", %{
+      grpcurl: grpcurl,
+      port: port
+    } do
+      proto2_file = "priv/protos/proto2_features/proto2_features.proto"
+      {:ok, schema} = Schema.from_file(proto2_file, import_paths: ["priv/protos"])
+
+      SimpleGrpc.register_service(schema, %{
+        process_proto2: fn req ->
+          # Verify proto2 fields and defaults
+          name = req[:name] || "missing"
+          port_val = req[:port] || -1
+          req_field = req[:required_field]
+
+          {:ok,
+           %{
+             success: true,
+             message: "Proto2 received: #{req_field} | name=#{name} | port=#{port_val}"
+           }}
+        end
+      })
+
+      # 1. Discover via reflection
+      {list_out, 0} =
+        System.cmd(grpcurl, ["-plaintext", "127.0.0.1:#{port}", "list"], stderr_to_stdout: true)
+
+      assert list_out =~ "proto2_features.Proto2Service"
+
+      # 2. Invoke via reflection
+      {call_out, 0} =
+        System.cmd(
+          grpcurl,
+          [
+            "-plaintext",
+            "-d",
+            ~s({"requiredField": "hello_proto2", "requiredId": 42}),
+            "127.0.0.1:#{port}",
+            "proto2_features.Proto2Service/ProcessProto2"
+          ],
+          stderr_to_stdout: true
+        )
+
+      assert call_out =~ ~s("success": true)
+      assert call_out =~ "Proto2 received: hello_proto2"
+      assert call_out =~ "name=unknown"
+      assert call_out =~ "port=8080"
+    end
+
+    test "grpcurl discovers and invokes edition 2023 service via reflection", %{
+      grpcurl: grpcurl,
+      port: port
+    } do
+      edition_proto = "priv/protos/editions/editions_service.proto"
+      {:ok, schema} = Schema.from_file(edition_proto)
+
+      SimpleGrpc.register_service(schema, %{
+        execute: fn req ->
+          req_id = req[:request_id]
+          payload = req[:payload] || ""
+          tags = req[:tags] || []
+
+          {:ok,
+           %{
+             confirmation_id: "conf_#{req_id}_#{payload}",
+             processed_count: length(tags)
+           }}
+        end
+      })
+
+      # 1. Discover via reflection
+      {list_out, 0} =
+        System.cmd(grpcurl, ["-plaintext", "127.0.0.1:#{port}", "list"], stderr_to_stdout: true)
+
+      assert list_out =~ "editions_service.EditionsTestService"
+
+      # 2. Invoke via reflection
+      {call_out, 0} =
+        System.cmd(
+          grpcurl,
+          [
+            "-plaintext",
+            "-d",
+            ~s({"requestId": "ed-999", "payload": "speed", "tags": [1, 2, 3]}),
+            "127.0.0.1:#{port}",
+            "editions_service.EditionsTestService/Execute"
+          ],
+          stderr_to_stdout: true
+        )
+
+      assert call_out =~ ~s("confirmationId": "conf_ed-999_speed")
+      assert call_out =~ ~s("processedCount": 3)
     end
   end
 end

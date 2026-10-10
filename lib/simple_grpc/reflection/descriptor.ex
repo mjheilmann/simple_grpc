@@ -78,7 +78,13 @@ defmodule SimpleGrpc.Reflection.Descriptor do
 
   @enum_value_descriptor_proto Builder.make_message("EnumValueDescriptorProto", [
                                  %Field{name: :name, number: 1, type: "string", kind: :field},
-                                 %Field{name: :number, number: 2, type: "int32", kind: :field}
+                                 %Field{
+                                   name: :number,
+                                   number: 2,
+                                   type: "int32",
+                                   prefix: :optional,
+                                   kind: :field
+                                 }
                                ])
 
   @enum_descriptor_proto Builder.make_message("EnumDescriptorProto", [
@@ -186,7 +192,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
                              kind: :field
                            },
                            %Field{name: :syntax, number: 12, type: "string", kind: :field},
-                           %Field{name: :edition, number: 14, type: "string", kind: :field}
+                           %Field{name: :edition, number: 14, type: "int32", kind: :field}
                          ])
 
   @message_options Builder.make_message("MessageOptions", [
@@ -260,7 +266,16 @@ defmodule SimpleGrpc.Reflection.Descriptor do
         pkg -> pkg
       end
 
-    edition = Map.get(fdp_map, :edition) || Map.get(fdp_map, "edition")
+    edition_val = Map.get(fdp_map, :edition) || Map.get(fdp_map, "edition")
+
+    edition =
+      case edition_val do
+        1000 -> "2023"
+        1001 -> "2024"
+        "2023" -> "2023"
+        "2024" -> "2024"
+        _ -> nil
+      end
 
     syntax =
       case Map.get(fdp_map, :syntax) || Map.get(fdp_map, "syntax") do
@@ -268,7 +283,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
         :proto2 -> :proto2
         "editions" -> :editions
         :editions -> :editions
-        _ when edition != nil and edition != "" -> :editions
+        _ when edition != nil -> :editions
         _ -> :proto3
       end
 
@@ -358,7 +373,15 @@ defmodule SimpleGrpc.Reflection.Descriptor do
           (is_nil(msg.full_name) or msg.full_name == msg.name or
              msg.full_name == "#{package}.#{msg.name}")
       end)
-      |> Enum.map(&message_to_proto(&1, package))
+      |> Enum.map(&message_to_proto(&1, package, schema.syntax))
+
+    nested_enum_names =
+      schema.messages
+      |> Map.values()
+      |> Enum.flat_map(fn msg ->
+        Enum.map(msg.nested_enums || [], & &1.name)
+      end)
+      |> MapSet.new()
 
     top_enums =
       schema.enums
@@ -366,6 +389,14 @@ defmodule SimpleGrpc.Reflection.Descriptor do
       |> Enum.uniq_by(fn
         %SchemaEnum{name: name} -> name
         map when is_map(map) -> map[:name] || map["name"]
+      end)
+      |> Enum.reject(fn
+        %SchemaEnum{name: name} ->
+          MapSet.member?(nested_enum_names, name) or String.contains?(name, ".")
+
+        map when is_map(map) ->
+          n = to_string(map[:name] || map["name"])
+          MapSet.member?(nested_enum_names, n) or String.contains?(n, ".")
       end)
       |> Enum.map(&enum_to_proto/1)
 
@@ -379,7 +410,18 @@ defmodule SimpleGrpc.Reflection.Descriptor do
         _ -> "proto3"
       end
 
-    edition = if schema.syntax == :editions, do: schema.edition || "2023", else: nil
+    edition =
+      if schema.syntax == :editions do
+        case schema.edition do
+          "2023" -> 1000
+          "2024" -> 1001
+          2023 -> 1000
+          2024 -> 1001
+          _ -> 1000
+        end
+      else
+        nil
+      end
 
     %{
       name: name,
@@ -404,14 +446,15 @@ defmodule SimpleGrpc.Reflection.Descriptor do
            nested_messages: nested_msgs,
            nested_enums: nested_enums
          },
-         package
+         package,
+         syntax
        ) do
     # Separate oneof definitions
     {oneof_decls, regular_and_oneof_fields, synthetic_map_entries} =
-      process_message_fields(fields, name, package)
+      process_message_fields(fields, name, package, syntax)
 
     nested_protos =
-      Enum.map(nested_msgs, &message_to_proto(&1, package)) ++ synthetic_map_entries
+      Enum.map(nested_msgs, &message_to_proto(&1, package, syntax)) ++ synthetic_map_entries
 
     enum_protos = Enum.map(nested_enums, &enum_to_proto/1)
 
@@ -425,7 +468,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
     }
   end
 
-  defp process_message_fields(fields, parent_msg_name, package) do
+  defp process_message_fields(fields, parent_msg_name, package, syntax) do
     Enum.reduce(fields, {[], [], []}, fn
       %Field{kind: :oneof, name: oneof_name, fields: subfields},
       {oneof_acc, fields_acc, map_acc} ->
@@ -434,7 +477,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
 
         oneof_fields =
           Enum.map(subfields, fn subfield ->
-            field_to_proto(subfield, package, oneof_index: oneof_index)
+            field_to_proto(subfield, package, oneof_index: oneof_index, syntax: syntax)
           end)
 
         {oneof_acc ++ [oneof_decl], fields_acc ++ oneof_fields, map_acc}
@@ -456,12 +499,12 @@ defmodule SimpleGrpc.Reflection.Descriptor do
             field_to_proto(
               %Field{name: :key, number: 1, type: k_type, kind: :field},
               package,
-              []
+              syntax: syntax
             ),
             field_to_proto(
               %Field{name: :value, number: 2, type: v_type, kind: :field},
               package,
-              []
+              syntax: syntax
             )
           ],
           nested_type: [],
@@ -485,7 +528,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
         {oneof_acc, fields_acc ++ [fdp], map_acc ++ [map_entry_desc]}
 
       %Field{} = field, {oneof_acc, fields_acc, map_acc} ->
-        fdp = field_to_proto(field, package, [])
+        fdp = field_to_proto(field, package, syntax: syntax)
         {oneof_acc, fields_acc ++ [fdp], map_acc}
     end)
   end
@@ -497,6 +540,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
          opts
        ) do
     oneof_index = Keyword.get(opts, :oneof_index)
+    syntax = Keyword.get(opts, :syntax, :proto3)
     type_code = type_name_to_type_code(type)
 
     label =
@@ -518,7 +562,7 @@ defmodule SimpleGrpc.Reflection.Descriptor do
         ""
       end
 
-    proto3_optional = prefix == :optional and is_nil(oneof_index)
+    proto3_optional = syntax == :proto3 and prefix == :optional and is_nil(oneof_index)
 
     res = %{
       name: to_string(fname),
@@ -958,15 +1002,17 @@ defmodule SimpleGrpc.Reflection.Descriptor do
   end
 
   defp format_full_type_name(type, package) when is_binary(type) do
+    pkg_str = if is_binary(package) and package != "", do: package, else: nil
+
     cond do
       String.starts_with?(type, "google.protobuf.") ->
         ".#{type}"
 
-      String.contains?(type, ".") ->
+      pkg_str != nil and String.starts_with?(type, "#{pkg_str}.") ->
         ".#{type}"
 
-      package != "" ->
-        ".#{package}.#{type}"
+      pkg_str != nil ->
+        ".#{pkg_str}.#{type}"
 
       true ->
         ".#{type}"
