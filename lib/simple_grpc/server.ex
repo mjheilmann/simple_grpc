@@ -113,6 +113,7 @@ defmodule SimpleGrpc.Server do
       |> Enum.map(&RPC.parse/1)
 
     handlers_ast = Keyword.get(opts, :handlers, [])
+    interceptors_ast = Keyword.get(opts, :interceptors, [])
 
     message_asts =
       ast
@@ -211,6 +212,7 @@ defmodule SimpleGrpc.Server do
       def __grpc_paths__, do: @__grpc_paths__
       def __rpcs__, do: unquote(rpcs_escaped)
       def __handlers__, do: unquote(handlers_ast)
+      def __interceptors__, do: List.wrap(unquote(interceptors_ast))
       def __messages__, do: unquote(messages_map_escaped)
 
       @doc """

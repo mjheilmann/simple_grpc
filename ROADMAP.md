@@ -43,10 +43,10 @@ This roadmap outlines key architectural enhancements and features planned for `S
 
 ## 📌 Phase 3: Middleware, Protocols & Error Handling
 
-- [ ] **7. Client & Server Interceptor Pipeline**
-  - [ ] **Client Interceptors**: Middleware stack for outgoing RPCs (`fn req, ctx, next -> next.(req, ctx)`).
-  - [ ] **Server RPC Middleware**: Message-level hooks executed after Protobuf decoding and before handler dispatch.
-  - [ ] **Built-in OpenTelemetry Support**: Automatic trace propagation (W3C `traceparent`) across client and server.
+- [x] **7. Client & Server Interceptor Pipeline**
+  - [x] **Client Interceptors**: Middleware stack for outgoing RPCs (`fn req, ctx, next -> next.(req, ctx)`).
+  - [x] **Server RPC Middleware**: Message-level hooks executed after Protobuf decoding and before handler dispatch.
+  - [x] **Built-in OpenTelemetry Support**: Automatic trace propagation (W3C `traceparent`) across client and server.
 
 - [ ] **8. gRPC Payload Compression**
   - [ ] Support `grpc-encoding` and `grpc-accept-encoding` headers (`gzip`, `deflate`, `zstd`).

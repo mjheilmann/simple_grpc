@@ -119,6 +119,24 @@ defmodule SimpleGrpc do
   @doc """
   Returns the deadline `DateTime` for the active incoming request, or `nil` if no `grpc-timeout` header was provided.
   """
+  def deadline(%SimpleGrpc.Context{conn: %Plug.Conn{} = conn}), do: deadline(conn)
+
+  def deadline(%SimpleGrpc.Context{} = ctx) do
+    case SimpleGrpc.Context.get_header(ctx, "grpc-timeout") do
+      nil ->
+        nil
+
+      timeout_header ->
+        case SimpleGrpc.Client.Headers.parse_grpc_timeout(timeout_header) do
+          {:ok, ms} ->
+            DateTime.add(DateTime.utc_now(), ms, :millisecond)
+
+          _ ->
+            nil
+        end
+    end
+  end
+
   def deadline(%Plug.Conn{} = conn) do
     case Plug.Conn.get_req_header(conn, "grpc-timeout") do
       [timeout_header | _] ->
@@ -141,7 +159,31 @@ defmodule SimpleGrpc do
   Returns the remaining milliseconds before the deadline for the active request expires.
   Returns `nil` if no deadline was set, or `0` if the deadline has already passed.
   """
-  def remaining_timeout(conn, unit \\ :millisecond)
+  def remaining_timeout(conn_or_ctx, unit \\ :millisecond)
+
+  def remaining_timeout(%SimpleGrpc.Context{conn: %Plug.Conn{} = conn}, unit) do
+    remaining_timeout(conn, unit)
+  end
+
+  def remaining_timeout(%SimpleGrpc.Context{} = ctx, unit) do
+    case SimpleGrpc.Context.get_header(ctx, "grpc-timeout") do
+      nil ->
+        nil
+
+      timeout_header ->
+        case SimpleGrpc.Client.Headers.parse_grpc_timeout(timeout_header) do
+          {:ok, ms} ->
+            case unit do
+              :millisecond -> ms
+              :second -> div(ms, 1000)
+              :microsecond -> ms * 1000
+            end
+
+          _ ->
+            nil
+        end
+    end
+  end
 
   def remaining_timeout(%Plug.Conn{} = conn, unit) do
     case Plug.Conn.get_req_header(conn, "grpc-timeout") do

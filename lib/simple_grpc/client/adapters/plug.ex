@@ -12,6 +12,10 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
   def connect(target, opts \\ []) do
     {plug_mod, plug_opts} =
       cond do
+        Keyword.has_key?(opts, :plug_opts) ->
+          plug_mod = if is_atom(target), do: target, else: SimpleGrpc.Plug
+          {plug_mod, Keyword.get(opts, :plug_opts)}
+
         is_atom(target) ->
           {target, target.init(opts)}
 

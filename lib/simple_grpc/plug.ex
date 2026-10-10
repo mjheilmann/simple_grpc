@@ -25,6 +25,7 @@ defmodule SimpleGrpc.Plug do
     reflection_opt = Map.get(opts_map, :reflection, false)
     health_opt = Map.get(opts_map, :health, false)
     unmatched = Map.get(opts_map, :unmatched, :unimplemented)
+    interceptors = Map.get(opts_map, :interceptors, [])
 
     routes =
       if services || health_opt || (reflection_opt && services) do
@@ -53,7 +54,8 @@ defmodule SimpleGrpc.Plug do
 
     %{
       routes: routes,
-      unmatched: unmatched
+      unmatched: unmatched,
+      interceptors: List.wrap(interceptors)
     }
   end
 
@@ -95,7 +97,7 @@ defmodule SimpleGrpc.Plug do
       case route_lookup do
         {:ok, route} ->
           emit_telemetry_start(conn, path, route, start_time)
-          handle_grpc_request(conn, route, start_time)
+          handle_grpc_request(conn, route, start_time, state.interceptors)
 
         :not_found ->
           if state.unmatched == :pass do
@@ -120,9 +122,10 @@ defmodule SimpleGrpc.Plug do
     end
   end
 
-  defp normalize_state(%{unmatched: _} = state), do: state
+  defp normalize_state(%{unmatched: _, interceptors: _} = state), do: state
+  defp normalize_state(%{unmatched: _} = state), do: Map.put(state, :interceptors, [])
   defp normalize_state(opts) when is_list(opts), do: init(opts)
-  defp normalize_state(_), do: %{routes: nil, unmatched: :unimplemented}
+  defp normalize_state(_), do: %{routes: nil, unmatched: :unimplemented, interceptors: []}
 
   defp build_service_routes(services) when is_list(services) do
     Enum.reduce(services, %{}, fn item, acc ->
@@ -133,7 +136,9 @@ defmodule SimpleGrpc.Plug do
           if function_exported?(mod, :__schema__, 0) do
             schema = mod.__schema__()
             {:ok, routes} = Registry.generate_routes(schema, mod)
-            Map.merge(acc, routes)
+            interceptors = if function_exported?(mod, :__interceptors__, 0), do: mod.__interceptors__(), else: []
+            routes_with_interceptors = attach_interceptors_to_routes(routes, interceptors)
+            Map.merge(acc, routes_with_interceptors)
           else
             acc
           end
@@ -148,7 +153,9 @@ defmodule SimpleGrpc.Plug do
           if function_exported?(mod, :__schema__, 0) do
             schema = mod.__schema__()
             {:ok, routes} = Registry.generate_routes(schema, handlers)
-            Map.merge(acc, routes)
+            interceptors = if function_exported?(mod, :__interceptors__, 0), do: mod.__interceptors__(), else: []
+            routes_with_interceptors = attach_interceptors_to_routes(routes, interceptors)
+            Map.merge(acc, routes_with_interceptors)
           else
             acc
           end
@@ -160,6 +167,12 @@ defmodule SimpleGrpc.Plug do
         _ ->
           acc
       end
+    end)
+  end
+
+  defp attach_interceptors_to_routes(routes, interceptors) when is_map(routes) do
+    Map.new(routes, fn {path, route} ->
+      {path, Map.put(route, :interceptors, List.wrap(interceptors))}
     end)
   end
 
@@ -205,7 +218,7 @@ defmodule SimpleGrpc.Plug do
 
   defp normalize_reflection_opts(_other, _schemas, _services), do: []
 
-  defp handle_grpc_request(conn, route, start_time) do
+  defp handle_grpc_request(conn, route, start_time, plug_interceptors) do
     path = conn.request_path
     timeout_header = get_req_header(conn, "grpc-timeout") |> List.first()
 
@@ -249,19 +262,43 @@ defmodule SimpleGrpc.Plug do
             end
           end
 
+        route_interceptors = Map.get(route, :interceptors, [])
+        all_interceptors = List.wrap(plug_interceptors) ++ List.wrap(route_interceptors)
+
+        ctx = %SimpleGrpc.Context{
+          role: :server,
+          service: route.service_name,
+          service_name: route.service_full_name,
+          rpc: route.rpc_name,
+          rpc_name: route.rpc_name,
+          path: route.path,
+          request_stream: route.request_stream,
+          response_stream: route.response_stream,
+          headers: conn.req_headers,
+          req_headers: conn.req_headers,
+          metadata: %{},
+          private: %{},
+          opts: [],
+          conn: conn,
+          schema: route.schema
+        }
+
+        dispatch_with_pipeline = fn ->
+          SimpleGrpc.Pipeline.execute(all_interceptors, req_arg, ctx, fn req, current_ctx ->
+            Dispatcher.dispatch(route, req, current_ctx)
+          end)
+        end
+
         dispatch_result =
           if is_integer(deadline_ms) and deadline_ms > 0 and not route.request_stream do
-            task =
-              Task.async(fn ->
-                Dispatcher.dispatch(route, req_arg, conn)
-              end)
+            task = Task.async(dispatch_with_pipeline)
 
             case Task.yield(task, deadline_ms) || Task.shutdown(task, :brutal_kill) do
               {:ok, res} -> res
               nil -> throw({:error, 4, "deadline exceeded"})
             end
           else
-            Dispatcher.dispatch(route, req_arg, conn)
+            dispatch_with_pipeline.()
           end
 
         case dispatch_result do
