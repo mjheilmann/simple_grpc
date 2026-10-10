@@ -37,20 +37,36 @@ defmodule SimpleGrpc.Client.Headers do
     merged_map = Map.merge(conn_map, call_map)
 
     # Check for compression options
-    compress? =
-      Keyword.get(opts, :compress, false) == true or
-        Keyword.get(opts, :encoding) in ["gzip", :gzip]
+    encoding_opt = Keyword.get(opts, :encoding)
+    compress? = Keyword.get(opts, :compress, false) == true
 
     merged_map =
-      if compress? and not Map.has_key?(merged_map, "grpc-encoding") do
-        Map.put(merged_map, "grpc-encoding", {"grpc-encoding", "gzip"})
-      else
-        merged_map
+      cond do
+        Map.has_key?(merged_map, "grpc-encoding") ->
+          merged_map
+
+        encoding_opt ->
+          enc_str = to_string(encoding_opt) |> String.downcase()
+          if enc_str != "identity" do
+            Map.put(merged_map, "grpc-encoding", {"grpc-encoding", enc_str})
+          else
+            merged_map
+          end
+
+        compress? ->
+          Map.put(merged_map, "grpc-encoding", {"grpc-encoding", "gzip"})
+
+        true ->
+          merged_map
       end
 
     merged_map =
       if not Map.has_key?(merged_map, "grpc-accept-encoding") do
-        Map.put(merged_map, "grpc-accept-encoding", {"grpc-accept-encoding", "identity,gzip"})
+        Map.put(
+          merged_map,
+          "grpc-accept-encoding",
+          {"grpc-accept-encoding", SimpleGrpc.Compression.accept_encoding_header()}
+        )
       else
         merged_map
       end

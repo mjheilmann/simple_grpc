@@ -43,9 +43,10 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
 
     headers = conn.resp_headers
     {status_code, status_msg} = Framing.extract_grpc_status(headers)
+    resp_encoding = extract_encoding(headers)
 
     if status_code == 0 do
-      case Framing.unframe(conn.resp_body) do
+      case Framing.unframe(conn.resp_body, encoding: resp_encoding) do
         {:ok, response_payload, _rest} ->
           {:ok, response_payload, headers, []}
 
@@ -54,6 +55,9 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
 
         {:incomplete, _} ->
           {:ok, conn.resp_body, headers, []}
+
+        {:error, reason} ->
+          {:error, 2, reason}
       end
     else
       {:error, status_code, status_msg}
@@ -87,6 +91,7 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
 
     headers = conn.resp_headers
     {status_code, status_msg} = Framing.extract_grpc_status(headers)
+    resp_encoding = extract_encoding(headers)
 
     if status_code == 0 do
       stream =
@@ -95,7 +100,7 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
             nil
 
           binary when is_binary(binary) ->
-            case Framing.unframe(binary) do
+            case Framing.unframe(binary, encoding: resp_encoding) do
               {:ok, payload, rest} -> {payload, rest}
               _ -> nil
             end
@@ -105,6 +110,12 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
     else
       {:error, status_code, status_msg}
     end
+  end
+
+  defp extract_encoding(headers) do
+    Enum.find_value(headers, "gzip", fn {k, v} ->
+      if String.downcase(to_string(k)) == "grpc-encoding", do: to_string(v)
+    end)
   end
 
   @impl true

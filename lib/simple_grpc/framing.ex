@@ -4,25 +4,37 @@ defmodule SimpleGrpc.Framing do
   Shared across both Client and Server transports.
   """
 
+  alias SimpleGrpc.Compression
+
   @doc """
   Frames a binary payload with the 5-byte gRPC prefix:
   `<<compressed::8, payload_length::32-big, payload::binary>>`.
 
   Options:
-  - `:compress` (boolean) or `:encoding` (`"gzip"` or `:gzip`) - compresses payload with gzip and sets compressed flag to 1.
+  - `:compress` (boolean) or `:encoding` (`"gzip"`, `"deflate"`, `"zstd"`, `"identity"`, etc.)
   """
   def frame(payload, opts \\ [])
 
   def frame(payload, opts) when is_binary(payload) and is_list(opts) do
-    compress? =
-      Keyword.get(opts, :compress, false) == true or
-        Keyword.get(opts, :encoding) in ["gzip", :gzip]
+    encoding =
+      case Keyword.get(opts, :encoding) do
+        nil ->
+          if Keyword.get(opts, :compress, false) == true, do: "gzip", else: "identity"
 
-    if compress? do
-      compressed = :zlib.gzip(payload)
-      <<1::8, byte_size(compressed)::32-big, compressed::binary>>
-    else
-      <<0::8, byte_size(payload)::32-big, payload::binary>>
+        enc when is_atom(enc) ->
+          to_string(enc)
+
+        enc when is_binary(enc) ->
+          enc
+      end
+
+    case Compression.compress(payload, encoding) do
+      {:ok, compressed_payload, flag} ->
+        <<flag::8, byte_size(compressed_payload)::32-big, compressed_payload::binary>>
+
+      {:error, _reason} ->
+        # Fallback to uncompressed if compression fails
+        <<0::8, byte_size(payload)::32-big, payload::binary>>
     end
   end
 
@@ -32,26 +44,28 @@ defmodule SimpleGrpc.Framing do
 
   @doc """
   Unframes a 5-byte prefixed gRPC binary message.
-  If the message compressed flag is 1, decompresses payload using gzip.
+  If the message compressed flag is 1, decompresses payload using the specified `:encoding` (default `"gzip"`).
   Returns `{:ok, payload, rest}` or `{:incomplete, binary}` or `{:error, reason}`.
   """
   def unframe(binary, opts \\ [])
 
   def unframe(
         <<compressed::8, length::32-big, payload::binary-size(length), rest::binary>>,
-        _opts
+        opts
       ) do
     case compressed do
       0 ->
         {:ok, payload, rest}
 
       1 ->
-        try do
-          decompressed = :zlib.gunzip(payload)
-          {:ok, decompressed, rest}
-        rescue
-          e ->
-            {:error, "Failed to decompress gRPC payload: #{Exception.message(e)}"}
+        encoding = Keyword.get(opts, :encoding, "gzip")
+
+        case Compression.decompress(payload, encoding) do
+          {:ok, decompressed} ->
+            {:ok, decompressed, rest}
+
+          {:error, reason} ->
+            {:error, "Failed to decompress gRPC payload (#{inspect(encoding)}): #{reason}"}
         end
 
       other ->

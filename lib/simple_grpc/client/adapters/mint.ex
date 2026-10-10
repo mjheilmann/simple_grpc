@@ -367,10 +367,11 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
               req_meta = Map.get(req_acc, ref)
               all_headers = req_meta.headers ++ req_meta.trailers
               {grpc_status, grpc_msg} = Framing.extract_grpc_status(all_headers)
+              resp_encoding = extract_encoding(all_headers)
 
               res =
                 if grpc_status == 0 and req_meta.status == 200 do
-                  case Framing.unframe(req_meta.buffer) do
+                  case Framing.unframe(req_meta.buffer, encoding: resp_encoding) do
                     {:ok, response_payload, _rest} ->
                       {:ok, response_payload, req_meta.headers, req_meta.trailers}
 
@@ -379,6 +380,9 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
 
                     {:incomplete, _} ->
                       {:ok, req_meta.buffer, req_meta.headers, req_meta.trailers}
+
+                    {:error, reason} ->
+                      {:error, 2, reason}
                   end
                 else
                   {:error, grpc_status, grpc_msg}
@@ -545,7 +549,9 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
       stream_meta =
         Map.get(streams, request_ref, %{buffer: <<>>, trailers: [], done: false, headers: []})
 
-      case Framing.unframe(stream_meta.buffer) do
+      resp_encoding = extract_encoding(stream_meta.headers ++ stream_meta.trailers)
+
+      case Framing.unframe(stream_meta.buffer, encoding: resp_encoding) do
         {:ok, message, rest_buffer} ->
           updated_meta = %{stream_meta | buffer: rest_buffer}
           new_streams = Map.put(streams, request_ref, updated_meta)
@@ -584,6 +590,12 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
             end
           end
       end
+    end
+
+    defp extract_encoding(headers) do
+      Enum.find_value(headers, "gzip", fn {k, v} ->
+        if String.downcase(to_string(k)) == "grpc-encoding", do: to_string(v)
+      end)
     end
 
     defp route_async_responses(responses, streams) do

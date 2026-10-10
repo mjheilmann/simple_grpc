@@ -68,7 +68,7 @@ defmodule SimpleGrpc.Plug do
     # Check for unsupported grpc-encoding header
     encoding = get_req_header(conn, "grpc-encoding") |> List.first()
 
-    if encoding not in [nil, "", "identity", "gzip"] do
+    if encoding not in [nil, ""] and not SimpleGrpc.Compression.supported_encoding?(encoding) do
       emit_telemetry_start(conn, path, nil, start_time)
 
       emit_telemetry_stop(
@@ -319,9 +319,9 @@ defmodule SimpleGrpc.Plug do
                     start_time
                   )
 
-                  should_compress = should_compress_response?(conn)
-                  framed_response = frame_grpc_message(resp_bytes, compress: should_compress)
-                  send_grpc_response(conn, framed_response, 0, "", should_compress)
+                  response_encoding = negotiate_response_encoding(conn)
+                  framed_response = frame_grpc_message(resp_bytes, encoding: response_encoding)
+                  send_grpc_response(conn, framed_response, 0, "", response_encoding)
 
                 {:error, code, msg} ->
                   throw({:error, code, msg})
@@ -374,9 +374,9 @@ defmodule SimpleGrpc.Plug do
     end
   end
 
-  defp should_compress_response?(conn) do
+  defp negotiate_response_encoding(conn) do
     accept_enc = get_req_header(conn, "grpc-accept-encoding") |> Enum.join(",")
-    String.contains?(accept_enc, "gzip")
+    SimpleGrpc.Compression.negotiate(accept_enc)
   end
 
   defp is_enumerable_stream(data, route) do
@@ -421,7 +421,8 @@ defmodule SimpleGrpc.Plug do
       {"grpc-message", ""}
     ]
 
-    should_compress = should_compress_response?(conn)
+    response_encoding = negotiate_response_encoding(conn)
+    accept_enc_header = SimpleGrpc.Compression.accept_encoding_header()
 
     deadline_end_time =
       if is_integer(deadline_ms) and deadline_ms > 0 do
@@ -438,8 +439,8 @@ defmodule SimpleGrpc.Plug do
         conn =
           conn
           |> put_resp_header("content-type", "application/grpc")
-          |> put_resp_header("grpc-accept-encoding", "identity,gzip")
-          |> maybe_put_encoding_header(should_compress)
+          |> put_resp_header("grpc-accept-encoding", accept_enc_header)
+          |> maybe_put_encoding_header(response_encoding)
           |> send_chunked(200)
 
         conn =
@@ -450,7 +451,7 @@ defmodule SimpleGrpc.Plug do
 
             case Protobuf.encode(route.output_message, item, route.schema) do
               {:ok, resp_bytes} ->
-                framed = frame_grpc_message(resp_bytes, compress: should_compress)
+                framed = frame_grpc_message(resp_bytes, encoding: response_encoding)
                 {:ok, conn_acc} = chunk(conn_acc, framed)
                 conn_acc
 
@@ -474,7 +475,7 @@ defmodule SimpleGrpc.Plug do
 
             case Protobuf.encode(route.output_message, item, route.schema) do
               {:ok, resp_bytes} ->
-                framed = frame_grpc_message(resp_bytes, compress: should_compress)
+                framed = frame_grpc_message(resp_bytes, encoding: response_encoding)
                 acc <> framed
 
               {:error, code, msg} ->
@@ -486,8 +487,8 @@ defmodule SimpleGrpc.Plug do
 
         conn
         |> put_resp_header("content-type", "application/grpc")
-        |> put_resp_header("grpc-accept-encoding", "identity,gzip")
-        |> maybe_put_encoding_header(should_compress)
+        |> put_resp_header("grpc-accept-encoding", accept_enc_header)
+        |> maybe_put_encoding_header(response_encoding)
         |> put_resp_header("grpc-status", "0")
         |> put_resp_header("grpc-message", "")
         |> send_resp(200, body)
@@ -570,11 +571,13 @@ defmodule SimpleGrpc.Plug do
     :telemetry.execute([:simple_grpc, :call, :exception], measurements, meta)
   end
 
-  defp send_grpc_response(conn, framed_response, status_code, status_message, compressed) do
+  defp send_grpc_response(conn, framed_response, status_code, status_message, response_encoding) do
     trailers = [
       {"grpc-status", to_string(status_code)},
       {"grpc-message", to_string(status_message)}
     ]
+
+    accept_enc_header = SimpleGrpc.Compression.accept_encoding_header()
 
     case conn.adapter do
       {Bandit.Adapter,
@@ -584,8 +587,8 @@ defmodule SimpleGrpc.Plug do
         conn =
           conn
           |> put_resp_header("content-type", "application/grpc")
-          |> put_resp_header("grpc-accept-encoding", "identity,gzip")
-          |> maybe_put_encoding_header(compressed)
+          |> put_resp_header("grpc-accept-encoding", accept_enc_header)
+          |> maybe_put_encoding_header(response_encoding)
           |> send_chunked(200)
 
         {:ok, conn} = chunk(conn, framed_response)
@@ -597,24 +600,27 @@ defmodule SimpleGrpc.Plug do
       _other ->
         conn
         |> put_resp_header("content-type", "application/grpc")
-        |> put_resp_header("grpc-accept-encoding", "identity,gzip")
-        |> maybe_put_encoding_header(compressed)
+        |> put_resp_header("grpc-accept-encoding", accept_enc_header)
+        |> maybe_put_encoding_header(response_encoding)
         |> put_resp_header("grpc-status", to_string(status_code))
         |> put_resp_header("grpc-message", to_string(status_message))
         |> send_resp(200, framed_response)
     end
   end
 
-  defp maybe_put_encoding_header(conn, true), do: put_resp_header(conn, "grpc-encoding", "gzip")
+  defp maybe_put_encoding_header(conn, enc) when enc in [nil, "", "identity", :identity], do: conn
+  defp maybe_put_encoding_header(conn, enc) when is_binary(enc), do: put_resp_header(conn, "grpc-encoding", enc)
+  defp maybe_put_encoding_header(conn, enc) when is_atom(enc), do: put_resp_header(conn, "grpc-encoding", to_string(enc))
   defp maybe_put_encoding_header(conn, _), do: conn
 
   defp send_trailers_only(conn, status_code, status_message) do
     code_int = Status.code(status_code)
+    accept_enc_header = SimpleGrpc.Compression.accept_encoding_header()
 
     headers = [
       {":status", "200"},
       {"content-type", "application/grpc"},
-      {"grpc-accept-encoding", "identity,gzip"},
+      {"grpc-accept-encoding", accept_enc_header},
       {"grpc-status", to_string(code_int)},
       {"grpc-message", to_string(status_message)}
     ]
@@ -630,7 +636,7 @@ defmodule SimpleGrpc.Plug do
       _other ->
         conn
         |> put_resp_header("content-type", "application/grpc")
-        |> put_resp_header("grpc-accept-encoding", "identity,gzip")
+        |> put_resp_header("grpc-accept-encoding", accept_enc_header)
         |> put_resp_header("grpc-status", to_string(code_int))
         |> put_resp_header("grpc-message", to_string(status_message))
         |> send_resp(200, "")
@@ -638,9 +644,11 @@ defmodule SimpleGrpc.Plug do
   end
 
   defp read_grpc_frame(conn, acc) do
+    req_encoding = get_req_header(conn, "grpc-encoding") |> List.first() || "gzip"
+
     case acc do
       <<compressed::8, length::32-big, payload::binary-size(length), rest::binary>> ->
-        decompressed_payload = decompress_frame(compressed, payload)
+        decompressed_payload = decompress_frame(compressed, payload, req_encoding)
         {:ok, decompressed_payload, conn, rest}
 
       <<_compressed::8, length::32-big, partial::binary>> ->
@@ -652,7 +660,7 @@ defmodule SimpleGrpc.Plug do
 
             case acc2 do
               <<compressed::8, ^length::32-big, payload::binary-size(^length), rest::binary>> ->
-                decompressed_payload = decompress_frame(compressed, payload)
+                decompressed_payload = decompress_frame(compressed, payload, req_encoding)
                 {:ok, decompressed_payload, conn, rest}
 
               <<>> ->
@@ -676,7 +684,7 @@ defmodule SimpleGrpc.Plug do
 
             case acc2 do
               <<compressed::8, length::32-big, payload::binary-size(length), rest::binary>> ->
-                decompressed_payload = decompress_frame(compressed, payload)
+                decompressed_payload = decompress_frame(compressed, payload, req_encoding)
                 {:ok, decompressed_payload, conn, rest}
 
               <<_compressed::8, _length::32-big, _partial::binary>> ->
@@ -698,17 +706,19 @@ defmodule SimpleGrpc.Plug do
     end
   end
 
-  defp decompress_frame(0, payload), do: payload
+  defp decompress_frame(0, payload, _encoding), do: payload
 
-  defp decompress_frame(1, payload) do
-    try do
-      :zlib.gunzip(payload)
-    rescue
-      _ -> throw({:error, 3, "Failed to decompress gRPC payload"})
+  defp decompress_frame(1, payload, encoding) do
+    case SimpleGrpc.Compression.decompress(payload, encoding) do
+      {:ok, decompressed} ->
+        decompressed
+
+      {:error, reason} ->
+        throw({:error, 3, "Failed to decompress gRPC payload: #{reason}"})
     end
   end
 
-  defp decompress_frame(other, _payload) do
+  defp decompress_frame(other, _payload, _encoding) do
     throw({:error, 12, "Unsupported compression flag: #{other}"})
   end
 

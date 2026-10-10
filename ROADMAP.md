@@ -48,9 +48,9 @@ This roadmap outlines key architectural enhancements and features planned for `S
   - [x] **Server RPC Middleware**: Message-level hooks executed after Protobuf decoding and before handler dispatch.
   - [x] **Built-in OpenTelemetry Support**: Automatic trace propagation (W3C `traceparent`) across client and server.
 
-- [ ] **8. gRPC Payload Compression**
-  - [ ] Support `grpc-encoding` and `grpc-accept-encoding` headers (`gzip`, `deflate`, `zstd`).
-  - [ ] Encode/decode the 1-byte compression flag in the 5-byte gRPC framing header.
+- [x] **8. gRPC Payload Compression**
+  - [x] Support `grpc-encoding` and `grpc-accept-encoding` headers (`gzip`, `deflate`, `zstd`).
+  - [x] Encode/decode the 1-byte compression flag in the 5-byte gRPC framing header.
 
 - [ ] **9. Rich Error Details (`google.rpc.Status`)**
   - [ ] Support `grpc-status-details-bin` trailing metadata.
