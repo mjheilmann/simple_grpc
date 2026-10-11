@@ -1,36 +1,57 @@
 defmodule SimpleGrpc.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @source_url "https://github.com/mjheilmann/simple_grpc"
+
   def project do
     [
       app: :simple_grpc,
-      version: "0.1.0",
-      elixir: "~> 1.20",
+      version: @version,
+      elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
+      description:
+        "Zero-boilerplate, pure-Elixir gRPC and Protobuf implementation with compile-time macros, HTTP/2 pooling, and gRPC-Web.",
+      package: package(),
+      docs: docs(),
       deps: deps()
     ]
   end
 
-  # Run "mix help compile.app" to learn about applications.
   def application do
     [
       extra_applications: [:logger, :telemetry]
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => @source_url
+      },
+      files: ~w(lib priv mix.exs README.md LICENSE)
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      source_url: @source_url,
+      extras: ["README.md", "LICENSE"]
+    ]
+  end
+
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
-      {:briefly, "~> 0.5.0", only: :test},
       {:nimble_parsec, "~> 1.2"},
       {:bandit, "~> 1.0"},
       {:plug, "~> 1.16"},
       {:mint, "~> 1.6"},
       {:nimble_pool, "~> 1.0"},
       {:castore, "~> 1.0", optional: true},
-      {:telemetry, "~> 1.0 or ~> 1.2"}
+      {:telemetry, "~> 1.0 or ~> 1.2"},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
 end
