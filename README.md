@@ -1,5 +1,7 @@
 # SimpleGrpc
 
+[![CI](https://github.com/mjheilmann/simple_grpc/actions/workflows/ci.yml/badge.svg)](https://github.com/mjheilmann/simple_grpc/actions/workflows/ci.yml)
+
 A lightweight, high-performance, and purely idiomatic gRPC framework for Elixir.
 
 - **Zero External Compilers**: No `protoc` binary or C/NIF dependencies required. Parses `.proto` files directly in pure Elixir at compile-time or runtime.
