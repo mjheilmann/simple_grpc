@@ -231,7 +231,8 @@ defmodule SimpleGrpc.Client.DSL do
       @doc """
       Builds a typed struct for the request of the given RPC or message name.
       """
-      @spec build_request(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) :: struct()
+      @spec build_request(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) ::
+              struct()
       def build_request(rpc_or_msg, attrs \\ %{}) do
         case SimpleGrpc.Server.lookup_message_module(
                @rpc_input_messages,
@@ -250,7 +251,8 @@ defmodule SimpleGrpc.Client.DSL do
       @doc """
       Builds a typed struct for the response of the given RPC or message name.
       """
-      @spec build_response(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) :: struct()
+      @spec build_response(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) ::
+              struct()
       def build_response(rpc_or_msg, attrs \\ %{}) do
         case SimpleGrpc.Server.lookup_message_module(
                @rpc_output_messages,
@@ -462,8 +464,10 @@ defmodule SimpleGrpc.Client.DSL do
 
     conn_interceptors = (conn && conn.opts && Keyword.get(conn.opts, :interceptors)) || []
     call_interceptors = Keyword.get(opts, :interceptors, [])
+
     all_interceptors =
-      List.wrap(conn_interceptors) ++ List.wrap(module_interceptors) ++ List.wrap(call_interceptors)
+      List.wrap(conn_interceptors) ++
+        List.wrap(module_interceptors) ++ List.wrap(call_interceptors)
 
     ctx = %SimpleGrpc.Context{
       role: :client,
@@ -576,8 +580,10 @@ defmodule SimpleGrpc.Client.DSL do
 
     conn_interceptors = (conn && conn.opts && Keyword.get(conn.opts, :interceptors)) || []
     call_interceptors = Keyword.get(opts, :interceptors, [])
+
     all_interceptors =
-      List.wrap(conn_interceptors) ++ List.wrap(module_interceptors) ++ List.wrap(call_interceptors)
+      List.wrap(conn_interceptors) ++
+        List.wrap(module_interceptors) ++ List.wrap(call_interceptors)
 
     ctx = %SimpleGrpc.Context{
       role: :client,

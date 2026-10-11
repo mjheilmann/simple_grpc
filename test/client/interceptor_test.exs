@@ -32,7 +32,13 @@ defmodule SimpleGrpc.Client.InterceptorTest do
 
     def client_streaming_call(req_stream, _ctx) do
       messages = Enum.map(req_stream, & &1.message)
-      {:ok, %{result: "Received: #{Enum.join(messages, ", ")}", sequence: length(messages), is_final: true}}
+
+      {:ok,
+       %{
+         result: "Received: #{Enum.join(messages, ", ")}",
+         sequence: length(messages),
+         is_final: true
+       }}
     end
 
     def bidirectional_streaming_call(req_stream, _ctx) do
@@ -52,7 +58,12 @@ defmodule SimpleGrpc.Client.InterceptorTest do
     @impl true
     def intercept(req, ctx, next, opts \\ []) do
       prefix = Keyword.get(opts, :prefix, "Dr. ")
-      modified_req = if is_map(req) and Map.has_key?(req, :message), do: %{req | message: prefix <> req.message}, else: req
+
+      modified_req =
+        if is_map(req) and Map.has_key?(req, :message),
+          do: %{req | message: prefix <> req.message},
+          else: req
+
       next.(modified_req, ctx)
     end
   end
@@ -96,7 +107,9 @@ defmodule SimpleGrpc.Client.InterceptorTest do
       assert resp.reply == "Hello, Sir Lancelot!"
     end
 
-    test "per-call interceptor can override or compose with module interceptors", %{plug_state: plug_state} do
+    test "per-call interceptor can override or compose with module interceptors", %{
+      plug_state: plug_state
+    } do
       {:ok, conn} = Client.connect(SimpleGrpc.Plug, adapter: :plug, plug_opts: plug_state)
 
       suffix_interceptor = fn req, ctx, next ->
@@ -104,7 +117,9 @@ defmodule SimpleGrpc.Client.InterceptorTest do
         next.(req, ctx)
       end
 
-      assert {:ok, resp} = EchoClient.echo(conn, %{message: "Lancelot"}, interceptors: [suffix_interceptor])
+      assert {:ok, resp} =
+               EchoClient.echo(conn, %{message: "Lancelot"}, interceptors: [suffix_interceptor])
+
       assert resp.reply == "Hello, Sir Lancelot of the Lake!"
     end
 
@@ -132,7 +147,8 @@ defmodule SimpleGrpc.Client.InterceptorTest do
           interceptors: [conn_interceptor]
         )
 
-      assert {:ok, _} = PlainEchoClient.echo(conn, %{message: "Alice"}, interceptors: [call_interceptor])
+      assert {:ok, _} =
+               PlainEchoClient.echo(conn, %{message: "Alice"}, interceptors: [call_interceptor])
 
       history = Agent.get(order_agent, &Enum.reverse/1)
       assert history == ["conn_pre", "call_pre", "call_post", "conn_post"]
@@ -151,13 +167,17 @@ defmodule SimpleGrpc.Client.InterceptorTest do
 
       # Short-circuit OK
       assert {:ok, resp} =
-               PlainEchoClient.echo(conn, %{message: "CachedUser"}, interceptors: [cache_interceptor])
+               PlainEchoClient.echo(conn, %{message: "CachedUser"},
+                 interceptors: [cache_interceptor]
+               )
 
       assert resp.reply == "Cached Response!"
 
       # Short-circuit ERROR
       assert {:error, 16, "Access denied"} =
-               PlainEchoClient.echo(conn, %{message: "Stranger"}, interceptors: [cache_interceptor])
+               PlainEchoClient.echo(conn, %{message: "Stranger"},
+                 interceptors: [cache_interceptor]
+               )
     end
 
     test "interceptor mutates context headers", %{plug_state: plug_state} do
@@ -191,7 +211,9 @@ defmodule SimpleGrpc.Client.InterceptorTest do
       end
 
       assert {:ok, resp} =
-               Client.call(conn, "/custom_prefix.PrefixService/Echo", %{message: "World"}, interceptors: [dynamic_interceptor])
+               Client.call(conn, "/custom_prefix.PrefixService/Echo", %{message: "World"},
+                 interceptors: [dynamic_interceptor]
+               )
 
       assert resp.reply == "Hello, Dynamic World!"
     end

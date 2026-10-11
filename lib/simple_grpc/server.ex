@@ -208,9 +208,7 @@ defmodule SimpleGrpc.Server do
                       | unquote(output_mod).t()
                       | map()
 
-          @callback unquote(snake_name)(
-                      request :: unquote(input_mod).t() | map()
-                    ) ::
+          @callback unquote(snake_name)(request :: unquote(input_mod).t() | map()) ::
                       {:ok, unquote(output_mod).t() | map() | term()}
                       | {:error, integer(), String.t()}
                       | {:error, integer(), String.t(), term()}
@@ -308,7 +306,8 @@ defmodule SimpleGrpc.Server do
       @doc """
       Builds a typed struct for the request of the given RPC or message name.
       """
-      @spec build_request(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) :: struct()
+      @spec build_request(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) ::
+              struct()
       def build_request(rpc_or_msg, attrs \\ %{}) do
         case SimpleGrpc.Server.lookup_message_module(
                @rpc_input_messages,
@@ -327,7 +326,8 @@ defmodule SimpleGrpc.Server do
       @doc """
       Builds a typed struct for the response of the given RPC or message name.
       """
-      @spec build_response(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) :: struct()
+      @spec build_response(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) ::
+              struct()
       def build_response(rpc_or_msg, attrs \\ %{}) do
         case SimpleGrpc.Server.lookup_message_module(
                @rpc_output_messages,
@@ -346,7 +346,11 @@ defmodule SimpleGrpc.Server do
       @doc """
       Dispatches an RPC call directly in-process to the server handlers.
       """
-      @spec dispatch(rpc_or_path :: atom() | String.t(), request_payload :: term(), stream :: term()) ::
+      @spec dispatch(
+              rpc_or_path :: atom() | String.t(),
+              request_payload :: term(),
+              stream :: term()
+            ) ::
               term()
       def dispatch(rpc_or_path, request_payload, stream \\ nil) do
         rpc =

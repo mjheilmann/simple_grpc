@@ -121,5 +121,7 @@ defmodule SimpleGrpc.Framing do
   Extracts gRPC status code, message, and rich status (`%SimpleGrpc.RPC.Status{}` or `nil`)
   from a list of headers or trailers.
   """
-  defdelegate extract_grpc_status_details(headers_or_trailers), to: SimpleGrpc.Status, as: :extract_status
+  defdelegate extract_grpc_status_details(headers_or_trailers),
+    to: SimpleGrpc.Status,
+    as: :extract_status
 end

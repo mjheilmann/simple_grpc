@@ -229,7 +229,13 @@ defmodule SimpleGrpc.CompressionTest do
       plug_opts: plug_opts,
       schema: schema
     } do
-      {:ok, req_bytes} = SimpleGrpc.Protobuf.encode("streaming.StreamRequest", %{message: "GzipUser", sequence: 1}, schema)
+      {:ok, req_bytes} =
+        SimpleGrpc.Protobuf.encode(
+          "streaming.StreamRequest",
+          %{message: "GzipUser", sequence: 1},
+          schema
+        )
+
       framed_req = Framing.frame(req_bytes, encoding: "gzip")
 
       conn =
@@ -251,7 +257,13 @@ defmodule SimpleGrpc.CompressionTest do
       plug_opts: plug_opts,
       schema: schema
     } do
-      {:ok, req_bytes} = SimpleGrpc.Protobuf.encode("streaming.StreamRequest", %{message: "DeflateUser", sequence: 1}, schema)
+      {:ok, req_bytes} =
+        SimpleGrpc.Protobuf.encode(
+          "streaming.StreamRequest",
+          %{message: "DeflateUser", sequence: 1},
+          schema
+        )
+
       framed_req = Framing.frame(req_bytes, encoding: "deflate")
 
       conn =
@@ -273,7 +285,13 @@ defmodule SimpleGrpc.CompressionTest do
       plug_opts: plug_opts,
       schema: schema
     } do
-      {:ok, req_bytes} = SimpleGrpc.Protobuf.encode("streaming.StreamRequest", %{message: "Alice", sequence: 1}, schema)
+      {:ok, req_bytes} =
+        SimpleGrpc.Protobuf.encode(
+          "streaming.StreamRequest",
+          %{message: "Alice", sequence: 1},
+          schema
+        )
+
       framed_req = Framing.frame(req_bytes)
 
       conn =
@@ -300,11 +318,18 @@ defmodule SimpleGrpc.CompressionTest do
       assert resp.result == "Hello, Alice"
     end
 
-    test "compresses response with deflate when client advertises grpc-accept-encoding: deflate", %{
-      plug_opts: plug_opts,
-      schema: schema
-    } do
-      {:ok, req_bytes} = SimpleGrpc.Protobuf.encode("streaming.StreamRequest", %{message: "Bob", sequence: 1}, schema)
+    test "compresses response with deflate when client advertises grpc-accept-encoding: deflate",
+         %{
+           plug_opts: plug_opts,
+           schema: schema
+         } do
+      {:ok, req_bytes} =
+        SimpleGrpc.Protobuf.encode(
+          "streaming.StreamRequest",
+          %{message: "Bob", sequence: 1},
+          schema
+        )
+
       framed_req = Framing.frame(req_bytes)
 
       conn =
@@ -339,7 +364,9 @@ defmodule SimpleGrpc.CompressionTest do
   describe "Client High-Level Calls with compression options" do
     setup do
       {:ok, conn} =
-        SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [CompressionServer]}, adapter: :plug)
+        SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [CompressionServer]},
+          adapter: :plug
+        )
 
       %{conn: conn}
     end
@@ -347,19 +374,31 @@ defmodule SimpleGrpc.CompressionTest do
     test "unary call with compress: true sends gzip and receives decompressed response", %{
       conn: conn
     } do
-      assert {:ok, reply} = CompressionClient.unary_call(conn, %{message: "CompressClient", sequence: 1}, compress: true)
+      assert {:ok, reply} =
+               CompressionClient.unary_call(conn, %{message: "CompressClient", sequence: 1},
+                 compress: true
+               )
+
       assert reply.result == "Hello, CompressClient"
     end
 
     test "unary call with encoding: :deflate sends deflate and receives decompressed response", %{
       conn: conn
     } do
-      assert {:ok, reply} = CompressionClient.unary_call(conn, %{message: "DeflateClient", sequence: 1}, encoding: :deflate)
+      assert {:ok, reply} =
+               CompressionClient.unary_call(conn, %{message: "DeflateClient", sequence: 1},
+                 encoding: :deflate
+               )
+
       assert reply.result == "Hello, DeflateClient"
     end
 
     test "server streaming call receives compressed frames transparently", %{conn: conn} do
-      assert {:ok, stream} = CompressionClient.server_streaming_call(conn, %{message: "Streamer", sequence: 1}, encoding: :gzip)
+      assert {:ok, stream} =
+               CompressionClient.server_streaming_call(conn, %{message: "Streamer", sequence: 1},
+                 encoding: :gzip
+               )
+
       messages = Enum.map(stream, & &1.result)
       assert messages == ["Hi, Streamer!", "Hello, Streamer!", "Welcome, Streamer!"]
     end
@@ -371,7 +410,9 @@ defmodule SimpleGrpc.CompressionTest do
         %{message: "Gamma", sequence: 3}
       ]
 
-      assert {:ok, reply} = CompressionClient.client_streaming_call(conn, req_stream, encoding: :deflate)
+      assert {:ok, reply} =
+               CompressionClient.client_streaming_call(conn, req_stream, encoding: :deflate)
+
       assert reply.result == "Hello all: Alpha, Beta, Gamma"
     end
 
@@ -381,7 +422,9 @@ defmodule SimpleGrpc.CompressionTest do
         %{message: "Two", sequence: 2}
       ]
 
-      assert {:ok, stream} = CompressionClient.bidirectional_streaming_call(conn, req_stream, encoding: :gzip)
+      assert {:ok, stream} =
+               CompressionClient.bidirectional_streaming_call(conn, req_stream, encoding: :gzip)
+
       messages = Enum.map(stream, & &1.result)
       assert messages == ["Echo: One", "Echo: Two"]
     end
@@ -419,19 +462,36 @@ defmodule SimpleGrpc.CompressionTest do
       %{client: client, port: port, schema: schema}
     end
 
-    test "E2E Unary call with gzip compression over HTTP/2 socket", %{client: client, schema: schema} do
+    test "E2E Unary call with gzip compression over HTTP/2 socket", %{
+      client: client,
+      schema: schema
+    } do
       {:ok, reply} =
-        SimpleGrpc.Client.call(client, "streaming.StreamingService/UnaryCall", %{message: "NetworkGzip", sequence: 1}, encoding: :gzip)
+        SimpleGrpc.Client.call(
+          client,
+          "streaming.StreamingService/UnaryCall",
+          %{message: "NetworkGzip", sequence: 1},
+          encoding: :gzip
+        )
 
       assert reply.result == "Hello, NetworkGzip"
 
       # Also test low-level send_unary to inspect response encoding header
-      {:ok, req_bytes} = SimpleGrpc.Protobuf.encode("streaming.StreamRequest", %{message: "RawGzip", sequence: 1}, schema)
+      {:ok, req_bytes} =
+        SimpleGrpc.Protobuf.encode(
+          "streaming.StreamRequest",
+          %{message: "RawGzip", sequence: 1},
+          schema
+        )
+
       {:ok, resp_bytes, headers, trailers} =
-        SimpleGrpc.Client.send_unary(client, "/streaming.StreamingService/UnaryCall", req_bytes, encoding: :gzip)
+        SimpleGrpc.Client.send_unary(client, "/streaming.StreamingService/UnaryCall", req_bytes,
+          encoding: :gzip
+        )
 
       assert is_binary(resp_bytes)
       all_headers = headers ++ trailers
+
       resp_encoding =
         Enum.find_value(all_headers, fn {k, v} ->
           if String.downcase(to_string(k)) == "grpc-encoding", do: to_string(v)
@@ -442,17 +502,32 @@ defmodule SimpleGrpc.CompressionTest do
 
     test "E2E Unary call with deflate compression over HTTP/2 socket", %{client: client} do
       {:ok, reply} =
-        SimpleGrpc.Client.call(client, "streaming.StreamingService/UnaryCall", %{message: "NetworkDeflate", sequence: 1}, encoding: :deflate)
+        SimpleGrpc.Client.call(
+          client,
+          "streaming.StreamingService/UnaryCall",
+          %{message: "NetworkDeflate", sequence: 1},
+          encoding: :deflate
+        )
 
       assert reply.result == "Hello, NetworkDeflate"
     end
 
     test "E2E Server streaming with compression over HTTP/2 socket", %{client: client} do
       {:ok, stream} =
-        SimpleGrpc.Client.call(client, "streaming.StreamingService/ServerStreamingCall", %{message: "NetworkStream", sequence: 1}, encoding: :gzip)
+        SimpleGrpc.Client.call(
+          client,
+          "streaming.StreamingService/ServerStreamingCall",
+          %{message: "NetworkStream", sequence: 1},
+          encoding: :gzip
+        )
 
       messages = Enum.map(stream, & &1.result)
-      assert messages == ["Hi, NetworkStream!", "Hello, NetworkStream!", "Welcome, NetworkStream!"]
+
+      assert messages == [
+               "Hi, NetworkStream!",
+               "Hello, NetworkStream!",
+               "Welcome, NetworkStream!"
+             ]
     end
   end
 end

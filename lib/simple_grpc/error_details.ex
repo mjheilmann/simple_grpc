@@ -258,7 +258,8 @@ defmodule SimpleGrpc.ErrorDetails do
   """
   def unpack(any_map, schema \\ nil)
 
-  def unpack(%{type_url: type_url, value: value}, schema) when is_binary(type_url) and is_binary(value) do
+  def unpack(%{type_url: type_url, value: value}, schema)
+      when is_binary(type_url) and is_binary(value) do
     schema_ctx = schema || WellKnownTypes.unified_schema()
     type_name = extract_type_name(type_url)
 
@@ -307,7 +308,8 @@ defmodule SimpleGrpc.ErrorDetails do
       Map.has_key?(map, :stack_entries) ->
         "google.rpc.DebugInfo"
 
-      Map.has_key?(map, :violations) and match?([%{type: _, subject: _} | _], Map.get(map, :violations)) ->
+      Map.has_key?(map, :violations) and
+          match?([%{type: _, subject: _} | _], Map.get(map, :violations)) ->
         "google.rpc.PreconditionFailure"
 
       Map.has_key?(map, :violations) ->

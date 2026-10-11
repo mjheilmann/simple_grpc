@@ -28,7 +28,10 @@ defmodule SimpleGrpc.Interceptors.Logger do
 
     try do
       result = next.(req, ctx)
-      duration_us = System.convert_time_unit(System.monotonic_time() - start_time, :native, :microsecond)
+
+      duration_us =
+        System.convert_time_unit(System.monotonic_time() - start_time, :native, :microsecond)
+
       duration_ms = Float.round(duration_us / 1000, 2)
 
       status_info = format_result_status(result)
@@ -41,7 +44,9 @@ defmodule SimpleGrpc.Interceptors.Logger do
       result
     catch
       kind, reason ->
-        duration_us = System.convert_time_unit(System.monotonic_time() - start_time, :native, :microsecond)
+        duration_us =
+          System.convert_time_unit(System.monotonic_time() - start_time, :native, :microsecond)
+
         duration_ms = Float.round(duration_us / 1000, 2)
 
         Logger.error(

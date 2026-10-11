@@ -9,15 +9,13 @@ defmodule SimpleGrpc.TraceContext do
 
   alias SimpleGrpc.Context
 
-  defstruct [
-    version: "00",
-    trace_id: nil,
-    span_id: nil,
-    parent_id: nil,
-    flags: "01",
-    sampled?: true,
-    tracestate: nil
-  ]
+  defstruct version: "00",
+            trace_id: nil,
+            span_id: nil,
+            parent_id: nil,
+            flags: "01",
+            sampled?: true,
+            tracestate: nil
 
   @type t :: %__MODULE__{
           version: String.t(),
@@ -78,7 +76,10 @@ defmodule SimpleGrpc.TraceContext do
   def parse(traceparent) when is_binary(traceparent) do
     trimmed = String.trim(traceparent)
 
-    case Regex.run(~r/^([0-9a-fA-F]{2})-([0-9a-fA-F]{32})-([0-9a-fA-F]{16})-([0-9a-fA-F]{2})$/, trimmed) do
+    case Regex.run(
+           ~r/^([0-9a-fA-F]{2})-([0-9a-fA-F]{32})-([0-9a-fA-F]{16})-([0-9a-fA-F]{2})$/,
+           trimmed
+         ) do
       [_, version, trace_id, span_id, flags] ->
         trace_id = String.downcase(trace_id)
         span_id = String.downcase(span_id)

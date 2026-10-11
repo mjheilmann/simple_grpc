@@ -74,7 +74,9 @@ defmodule SimpleGrpc.TypespecTest do
       assert {:unary_call!, 3} in spec_signatures or {:unary_call!, 2} in spec_signatures
       assert {:UnaryCall!, 3} in spec_signatures or {:UnaryCall!, 2} in spec_signatures
 
-      assert {:server_streaming_call, 3} in spec_signatures or {:server_streaming_call, 2} in spec_signatures
+      assert {:server_streaming_call, 3} in spec_signatures or
+               {:server_streaming_call, 2} in spec_signatures
+
       assert {:grpc_path, 1} in spec_signatures
       assert {:build_request, 1} in spec_signatures or {:build_request, 2} in spec_signatures
       assert {:build_response, 1} in spec_signatures or {:build_response, 2} in spec_signatures

@@ -778,7 +778,9 @@ defmodule SimpleGrpc.Compiler do
         [
           quote do
             defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
-              {{k, v}, rest2} = SimpleGrpc.Protobuf.decode_map_entry(rest1, unquote(Macro.escape(field)))
+              {{k, v}, rest2} =
+                SimpleGrpc.Protobuf.decode_map_entry(rest1, unquote(Macro.escape(field)))
+
               curr_map = Map.get(acc, unquote(field_name), %{})
               unquote(loop_fn)(rest2, %{acc | unquote(field_name) => Map.put(curr_map, k, v)})
             end

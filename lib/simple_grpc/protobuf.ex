@@ -565,7 +565,8 @@ defmodule SimpleGrpc.Protobuf do
   defp encode_length_delimited_payload("bytes", value, _schema_ctx) when is_binary(value),
     do: value
 
-  defp encode_length_delimited_payload({:map, key_type, val_type}, value, schema_ctx) when is_map(value) do
+  defp encode_length_delimited_payload({:map, key_type, val_type}, value, schema_ctx)
+       when is_map(value) do
     Enum.map(value, fn {k, v} ->
       k_bytes = encode_single_field(1, key_type, k, schema_ctx, nil)
       v_bytes = encode_single_field(2, val_type, v, schema_ctx, nil)

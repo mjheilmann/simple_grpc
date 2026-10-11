@@ -114,7 +114,8 @@ defmodule SimpleGrpc.Status do
     encode_status_details_bin(code_int, message, details)
   end
 
-  def to_status_details_bin(%{code: code, message: message, details: details}) when is_list(details) do
+  def to_status_details_bin(%{code: code, message: message, details: details})
+      when is_list(details) do
     code_int = code(code)
     encode_status_details_bin(code_int, message, details)
   end
@@ -217,9 +218,12 @@ defmodule SimpleGrpc.Status do
   def extract_details(%RPCStatus{details: details}), do: details
   def extract_details({:error, %RPCStatus{details: details}}), do: details
   def extract_details({:error, _code, _msg, %RPCStatus{details: details}}), do: details
-  def extract_details({:error, _code, _msg, details}) when is_list(details), do: ErrorDetails.unpack_all(details)
 
-  def extract_details(headers_or_trailers) when is_list(headers_or_trailers) or is_map(headers_or_trailers) do
+  def extract_details({:error, _code, _msg, details}) when is_list(details),
+    do: ErrorDetails.unpack_all(details)
+
+  def extract_details(headers_or_trailers)
+      when is_list(headers_or_trailers) or is_map(headers_or_trailers) do
     case extract_status(headers_or_trailers) do
       {_code, _msg, %RPCStatus{details: details}} -> details
       _ -> []

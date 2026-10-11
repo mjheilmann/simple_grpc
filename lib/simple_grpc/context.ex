@@ -109,7 +109,8 @@ defmodule SimpleGrpc.Context do
   @doc """
   Updates a private middleware value.
   """
-  def update_private(%__MODULE__{private: private} = ctx, key, default, fun) when is_function(fun, 1) do
+  def update_private(%__MODULE__{private: private} = ctx, key, default, fun)
+      when is_function(fun, 1) do
     %{ctx | private: Map.update(private, key, default, fun)}
   end
 

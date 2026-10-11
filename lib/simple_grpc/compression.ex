@@ -138,7 +138,8 @@ defmodule SimpleGrpc.Compression do
     pref_str = if preferred, do: String.downcase(to_string(preferred)), else: nil
 
     cond do
-      pref_str != nil and pref_str in accepted and pref_str in @known_encodings and pref_str != "identity" ->
+      pref_str != nil and pref_str in accepted and pref_str in @known_encodings and
+          pref_str != "identity" ->
         pref_str
 
       "gzip" in accepted ->
@@ -172,16 +173,26 @@ defmodule SimpleGrpc.Compression do
     cond do
       Code.ensure_loaded?(:ezstd) and function_exported?(:ezstd, :compress, 1) ->
         case apply(:ezstd, :compress, [payload]) do
-          {:ok, compressed} -> {:ok, IO.iodata_to_binary(compressed), 1}
-          compressed when is_binary(compressed) or is_list(compressed) -> {:ok, IO.iodata_to_binary(compressed), 1}
-          {:error, reason} -> {:error, "zstd compression failed: #{inspect(reason)}"}
+          {:ok, compressed} ->
+            {:ok, IO.iodata_to_binary(compressed), 1}
+
+          compressed when is_binary(compressed) or is_list(compressed) ->
+            {:ok, IO.iodata_to_binary(compressed), 1}
+
+          {:error, reason} ->
+            {:error, "zstd compression failed: #{inspect(reason)}"}
         end
 
       Code.ensure_loaded?(:zstd) and function_exported?(:zstd, :compress, 1) ->
         case apply(:zstd, :compress, [payload]) do
-          {:ok, compressed} -> {:ok, IO.iodata_to_binary(compressed), 1}
-          compressed when is_binary(compressed) or is_list(compressed) -> {:ok, IO.iodata_to_binary(compressed), 1}
-          {:error, reason} -> {:error, "zstd compression failed: #{inspect(reason)}"}
+          {:ok, compressed} ->
+            {:ok, IO.iodata_to_binary(compressed), 1}
+
+          compressed when is_binary(compressed) or is_list(compressed) ->
+            {:ok, IO.iodata_to_binary(compressed), 1}
+
+          {:error, reason} ->
+            {:error, "zstd compression failed: #{inspect(reason)}"}
         end
 
       true ->
@@ -194,16 +205,26 @@ defmodule SimpleGrpc.Compression do
     cond do
       Code.ensure_loaded?(:ezstd) and function_exported?(:ezstd, :decompress, 1) ->
         case apply(:ezstd, :decompress, [payload]) do
-          {:ok, decompressed} -> {:ok, IO.iodata_to_binary(decompressed)}
-          decompressed when is_binary(decompressed) or is_list(decompressed) -> {:ok, IO.iodata_to_binary(decompressed)}
-          {:error, reason} -> {:error, "zstd decompression failed: #{inspect(reason)}"}
+          {:ok, decompressed} ->
+            {:ok, IO.iodata_to_binary(decompressed)}
+
+          decompressed when is_binary(decompressed) or is_list(decompressed) ->
+            {:ok, IO.iodata_to_binary(decompressed)}
+
+          {:error, reason} ->
+            {:error, "zstd decompression failed: #{inspect(reason)}"}
         end
 
       Code.ensure_loaded?(:zstd) and function_exported?(:zstd, :decompress, 1) ->
         case apply(:zstd, :decompress, [payload]) do
-          {:ok, decompressed} -> {:ok, IO.iodata_to_binary(decompressed)}
-          decompressed when is_binary(decompressed) or is_list(decompressed) -> {:ok, IO.iodata_to_binary(decompressed)}
-          {:error, reason} -> {:error, "zstd decompression failed: #{inspect(reason)}"}
+          {:ok, decompressed} ->
+            {:ok, IO.iodata_to_binary(decompressed)}
+
+          decompressed when is_binary(decompressed) or is_list(decompressed) ->
+            {:ok, IO.iodata_to_binary(decompressed)}
+
+          {:error, reason} ->
+            {:error, "zstd decompression failed: #{inspect(reason)}"}
         end
 
       is_binary(payload) and unwrap_zstd_magic(payload) ->

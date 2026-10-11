@@ -48,7 +48,9 @@ defmodule SimpleGrpc.GrpcWeb do
     content_type = get_req_header(conn, "content-type") |> List.first()
     has_x_grpc_web = get_req_header(conn, "x-grpc-web") != []
 
-    grpc_web_request?(content_type) or (has_x_grpc_web and is_binary(content_type) and String.starts_with?(content_type, "application/grpc"))
+    grpc_web_request?(content_type) or
+      (has_x_grpc_web and is_binary(content_type) and
+         String.starts_with?(content_type, "application/grpc"))
   end
 
   def grpc_web_request?(content_type) when is_binary(content_type) do

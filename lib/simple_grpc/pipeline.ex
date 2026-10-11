@@ -17,7 +17,8 @@ defmodule SimpleGrpc.Pipeline do
   - Modules: `MyInterceptor` (invokes `MyInterceptor.intercept(req, ctx, next)`)
   - Tuples: `{MyInterceptor, opts}` (invokes `MyInterceptor.intercept(req, ctx, next, opts)`)
   """
-  def execute(interceptors, req, %Context{} = ctx, final_fn) when is_list(interceptors) and is_function(final_fn, 2) do
+  def execute(interceptors, req, %Context{} = ctx, final_fn)
+      when is_list(interceptors) and is_function(final_fn, 2) do
     flattened = List.flatten(interceptors) |> Enum.reject(&is_nil/1)
 
     chain =
@@ -32,7 +33,8 @@ defmodule SimpleGrpc.Pipeline do
     final_fn.(req, ctx)
   end
 
-  def execute(single_interceptor, req, %Context{} = ctx, final_fn) when is_function(final_fn, 2) do
+  def execute(single_interceptor, req, %Context{} = ctx, final_fn)
+      when is_function(final_fn, 2) do
     execute([single_interceptor], req, ctx, final_fn)
   end
 
@@ -63,7 +65,8 @@ defmodule SimpleGrpc.Pipeline do
         end
 
       true ->
-        raise ArgumentError, "Module #{inspect(mod)} must implement SimpleGrpc.Interceptor.intercept/3 or /4"
+        raise ArgumentError,
+              "Module #{inspect(mod)} must implement SimpleGrpc.Interceptor.intercept/3 or /4"
     end
   end
 
@@ -75,7 +78,8 @@ defmodule SimpleGrpc.Pipeline do
         mod.intercept(req, ctx, next_fn)
       end
     else
-      raise ArgumentError, "Module #{inspect(mod)} must implement SimpleGrpc.Interceptor.intercept/3"
+      raise ArgumentError,
+            "Module #{inspect(mod)} must implement SimpleGrpc.Interceptor.intercept/3"
     end
   end
 

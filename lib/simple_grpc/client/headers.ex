@@ -47,6 +47,7 @@ defmodule SimpleGrpc.Client.Headers do
 
         encoding_opt ->
           enc_str = to_string(encoding_opt) |> String.downcase()
+
           if enc_str != "identity" do
             Map.put(merged_map, "grpc-encoding", {"grpc-encoding", enc_str})
           else

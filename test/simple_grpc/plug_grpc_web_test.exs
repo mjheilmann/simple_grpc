@@ -44,19 +44,25 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
       end)
     end
 
-    def unary_call(r, _), do: {:ok, %{result: "StreamWeb: " <> r.message, sequence: r.sequence, is_final: true}}
+    def unary_call(r, _),
+      do: {:ok, %{result: "StreamWeb: " <> r.message, sequence: r.sequence, is_final: true}}
+
     def client_streaming_call(r, _), do: r
     def bidirectional_streaming_call(r, _), do: r
   end
 
   setup_all do
-    {:ok, schema_prefix} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+    {:ok, schema_prefix} =
+      Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+
     {:ok, schema_streaming} = Schema.from_file("priv/protos/streaming/streaming_service.proto")
 
     # Start live Bandit server for network HTTP testing
     {:ok, bandit_pid} =
       Bandit.start_link(
-        plug: {SimpleGrpc.Plug.GrpcWeb, services: [WebTestServer, WebStreamingServer], reflection: true},
+        plug:
+          {SimpleGrpc.Plug.GrpcWeb,
+           services: [WebTestServer, WebStreamingServer], reflection: true},
         port: 0,
         startup_log: false
       )
@@ -75,7 +81,9 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
   end
 
   describe "Unary gRPC-Web binary calls (application/grpc-web and application/grpc-web+proto)" do
-    test "successful unary call returns framed data and 0x80 trailer frame", %{schema_prefix: schema} do
+    test "successful unary call returns framed data and 0x80 trailer frame", %{
+      schema_prefix: schema
+    } do
       req_bytes = Protobuf.encode!("EchoRequest", %{message: "Hello Binary"}, schema)
       framed_req = Framing.frame(req_bytes)
 
@@ -112,7 +120,9 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
       assert Enum.find(trailers, fn {k, v} -> k == "grpc-message" and v =~ "Requested%20item" end)
     end
 
-    test "rich status details are packed into grpc-status-details-bin trailer in body", %{schema_prefix: schema} do
+    test "rich status details are packed into grpc-status-details-bin trailer in body", %{
+      schema_prefix: schema
+    } do
       req_bytes = Protobuf.encode!("EchoRequest", %{message: "error_rich_status"}, schema)
       framed_req = Framing.frame(req_bytes)
 
@@ -133,7 +143,9 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
   end
 
   describe "Unary gRPC-Web Base64 text calls (application/grpc-web-text and application/grpc-web-text+proto)" do
-    test "successful Base64 unary call decodes request and encodes response", %{schema_prefix: schema} do
+    test "successful Base64 unary call decodes request and encodes response", %{
+      schema_prefix: schema
+    } do
       req_bytes = Protobuf.encode!("EchoRequest", %{message: "Hello Base64"}, schema)
       framed_req = Framing.frame(req_bytes)
       base64_req = Base.encode64(framed_req)
@@ -144,7 +156,10 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
         |> SimpleGrpc.Plug.call(SimpleGrpc.Plug.init(services: [WebTestServer]))
 
       assert conn.status == 200
-      assert Plug.Conn.get_resp_header(conn, "content-type") == ["application/grpc-web-text+proto"]
+
+      assert Plug.Conn.get_resp_header(conn, "content-type") == [
+               "application/grpc-web-text+proto"
+             ]
 
       # Response body should be Base64 text
       {:ok, raw_resp_binary} = Base.decode64(conn.resp_body, ignore: :whitespace)
@@ -174,8 +189,12 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
   end
 
   describe "Server Streaming gRPC-Web" do
-    test "streams chunks followed by final 0x80 trailer frame in binary format", %{schema_streaming: schema} do
-      req_bytes = Protobuf.encode!("StreamRequest", %{message: "StreamPing", sequence: 100}, schema)
+    test "streams chunks followed by final 0x80 trailer frame in binary format", %{
+      schema_streaming: schema
+    } do
+      req_bytes =
+        Protobuf.encode!("StreamRequest", %{message: "StreamPing", sequence: 100}, schema)
+
       framed_req = Framing.frame(req_bytes)
 
       conn =
@@ -207,7 +226,9 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
     end
 
     test "streams Base64 encoded chunks in text format", %{schema_streaming: schema} do
-      req_bytes = Protobuf.encode!("StreamRequest", %{message: "Base64Stream", sequence: 200}, schema)
+      req_bytes =
+        Protobuf.encode!("StreamRequest", %{message: "Base64Stream", sequence: 200}, schema)
+
       base64_req = Base.encode64(Framing.frame(req_bytes))
 
       conn =
@@ -216,7 +237,10 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
         |> SimpleGrpc.Plug.call(SimpleGrpc.Plug.init(services: [WebStreamingServer]))
 
       assert conn.status == 200
-      assert Plug.Conn.get_resp_header(conn, "content-type") == ["application/grpc-web-text+proto"]
+
+      assert Plug.Conn.get_resp_header(conn, "content-type") == [
+               "application/grpc-web-text+proto"
+             ]
 
       {:ok, raw_body} = Base.decode64(conn.resp_body, ignore: :whitespace)
       assert {:data, chunk1_raw, rest1} = GrpcWeb.unframe(raw_body)
@@ -245,9 +269,16 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
         )
 
       assert conn.status == 204
-      assert Plug.Conn.get_resp_header(conn, "access-control-allow-origin") == ["http://localhost:3000"]
+
+      assert Plug.Conn.get_resp_header(conn, "access-control-allow-origin") == [
+               "http://localhost:3000"
+             ]
+
       assert Plug.Conn.get_resp_header(conn, "access-control-allow-methods") == ["POST, OPTIONS"]
-      assert Plug.Conn.get_resp_header(conn, "access-control-allow-headers") == ["content-type,x-grpc-web"]
+
+      assert Plug.Conn.get_resp_header(conn, "access-control-allow-headers") == [
+               "content-type,x-grpc-web"
+             ]
     end
 
     test "unknown method with gRPC-Web returns 200 with trailer frame 12 (UNIMPLEMENTED)" do
@@ -263,7 +294,9 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
   end
 
   describe "Live HTTP / TCP Integration over Bandit with SimpleGrpc.Client" do
-    test "SimpleGrpc.Client.Adapters.Plug executes gRPC-Web unary calls cleanly", %{schema_prefix: schema} do
+    test "SimpleGrpc.Client.Adapters.Plug executes gRPC-Web unary calls cleanly", %{
+      schema_prefix: schema
+    } do
       {:ok, conn} =
         SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [WebTestServer]}, adapter: :plug)
 
@@ -278,7 +311,9 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
       assert decoded.reply == "Web: ClientAdapterWeb"
     end
 
-    test "SimpleGrpc.Client.Adapters.Plug executes Base64 text calls cleanly", %{schema_prefix: schema} do
+    test "SimpleGrpc.Client.Adapters.Plug executes Base64 text calls cleanly", %{
+      schema_prefix: schema
+    } do
       {:ok, conn} =
         SimpleGrpc.Client.connect({SimpleGrpc.Plug, services: [WebTestServer]}, adapter: :plug)
 

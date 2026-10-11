@@ -40,8 +40,11 @@ defmodule SimpleGrpc.TraceContextTest do
     end
 
     test "rejects all-zero trace_id or span_id" do
-      assert TraceContext.parse("00-00000000000000000000000000000000-00f067aa0ba902b7-01") == :error
-      assert TraceContext.parse("00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01") == :error
+      assert TraceContext.parse("00-00000000000000000000000000000000-00f067aa0ba902b7-01") ==
+               :error
+
+      assert TraceContext.parse("00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01") ==
+               :error
     end
 
     test "rejects invalid formats" do

@@ -120,13 +120,19 @@ defmodule SimpleGrpc.Server.Message do
     |> Enum.uniq_by(fn {k, _v} -> k end)
   end
 
-  defp build_field_type(%SimpleGrpc.Schema.Field{kind: :map, key_type: k_type, val_type: v_type}, parent_module) do
+  defp build_field_type(
+         %SimpleGrpc.Schema.Field{kind: :map, key_type: k_type, val_type: v_type},
+         parent_module
+       ) do
     k_ast = primitive_or_submodule_type(k_type, parent_module)
     v_ast = primitive_or_submodule_type(v_type, parent_module)
     quote do: %{optional(unquote(k_ast)) => unquote(v_ast)}
   end
 
-  defp build_field_type(%SimpleGrpc.Schema.Field{kind: :field, prefix: :repeated, type: type}, parent_module) do
+  defp build_field_type(
+         %SimpleGrpc.Schema.Field{kind: :field, prefix: :repeated, type: type},
+         parent_module
+       ) do
     elem_ast = primitive_or_submodule_type(type, parent_module)
     quote do: [unquote(elem_ast)]
   end

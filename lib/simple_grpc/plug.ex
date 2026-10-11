@@ -11,6 +11,9 @@ defmodule SimpleGrpc.Plug do
 
   @behaviour Plug
 
+  @doc """
+  Initializes the Plug with gRPC services, interceptors, reflection, health check, and CORS options.
+  """
   @impl true
   def init(opts) do
     opts_map = Enum.into(opts, %{})
@@ -70,6 +73,9 @@ defmodule SimpleGrpc.Plug do
     }
   end
 
+  @doc """
+  Processes an incoming gRPC or gRPC-Web request.
+  """
   @impl true
   def call(conn, state) do
     start_time = System.monotonic_time()
@@ -98,7 +104,14 @@ defmodule SimpleGrpc.Plug do
           start_time
         )
 
-        send_trailers_only(conn, 12, "unsupported grpc-encoding: #{encoding}", nil, grpc_web_format, state.cors_opts)
+        send_trailers_only(
+          conn,
+          12,
+          "unsupported grpc-encoding: #{encoding}",
+          nil,
+          grpc_web_format,
+          state.cors_opts
+        )
       else
         route_lookup =
           if state.routes do
@@ -113,7 +126,15 @@ defmodule SimpleGrpc.Plug do
         case route_lookup do
           {:ok, route} ->
             emit_telemetry_start(conn, path, route, start_time)
-            handle_grpc_request(conn, route, start_time, state.interceptors, grpc_web_format, state.cors_opts)
+
+            handle_grpc_request(
+              conn,
+              route,
+              start_time,
+              state.interceptors,
+              grpc_web_format,
+              state.cors_opts
+            )
 
           :not_found ->
             if state.unmatched == :pass do
@@ -132,7 +153,14 @@ defmodule SimpleGrpc.Plug do
                 start_time
               )
 
-              send_trailers_only(conn, 12, "unknown service or method: #{path}", nil, grpc_web_format, state.cors_opts)
+              send_trailers_only(
+                conn,
+                12,
+                "unknown service or method: #{path}",
+                nil,
+                grpc_web_format,
+                state.cors_opts
+              )
             end
         end
       end
@@ -140,10 +168,22 @@ defmodule SimpleGrpc.Plug do
   end
 
   defp normalize_state(%{unmatched: _, interceptors: _, cors_opts: _} = state), do: state
-  defp normalize_state(%{unmatched: _, interceptors: _} = state), do: Map.put(state, :cors_opts, [allowed_origins: "*"])
-  defp normalize_state(%{unmatched: _} = state), do: Map.merge(state, %{interceptors: [], cors_opts: [allowed_origins: "*"]})
+
+  defp normalize_state(%{unmatched: _, interceptors: _} = state),
+    do: Map.put(state, :cors_opts, allowed_origins: "*")
+
+  defp normalize_state(%{unmatched: _} = state),
+    do: Map.merge(state, %{interceptors: [], cors_opts: [allowed_origins: "*"]})
+
   defp normalize_state(opts) when is_list(opts), do: init(opts)
-  defp normalize_state(_), do: %{routes: nil, unmatched: :unimplemented, interceptors: [], cors_opts: [allowed_origins: "*"]}
+
+  defp normalize_state(_),
+    do: %{
+      routes: nil,
+      unmatched: :unimplemented,
+      interceptors: [],
+      cors_opts: [allowed_origins: "*"]
+    }
 
   defp build_service_routes(services) when is_list(services) do
     Enum.reduce(services, %{}, fn item, acc ->
@@ -154,7 +194,12 @@ defmodule SimpleGrpc.Plug do
           if function_exported?(mod, :__schema__, 0) do
             schema = mod.__schema__()
             {:ok, routes} = Registry.generate_routes(schema, mod)
-            interceptors = if function_exported?(mod, :__interceptors__, 0), do: mod.__interceptors__(), else: []
+
+            interceptors =
+              if function_exported?(mod, :__interceptors__, 0),
+                do: mod.__interceptors__(),
+                else: []
+
             routes_with_interceptors = attach_interceptors_to_routes(routes, interceptors)
             Map.merge(acc, routes_with_interceptors)
           else
@@ -171,7 +216,12 @@ defmodule SimpleGrpc.Plug do
           if function_exported?(mod, :__schema__, 0) do
             schema = mod.__schema__()
             {:ok, routes} = Registry.generate_routes(schema, handlers)
-            interceptors = if function_exported?(mod, :__interceptors__, 0), do: mod.__interceptors__(), else: []
+
+            interceptors =
+              if function_exported?(mod, :__interceptors__, 0),
+                do: mod.__interceptors__(),
+                else: []
+
             routes_with_interceptors = attach_interceptors_to_routes(routes, interceptors)
             Map.merge(acc, routes_with_interceptors)
           else
@@ -322,7 +372,15 @@ defmodule SimpleGrpc.Plug do
         case dispatch_result do
           {:ok, resp_data} ->
             if route.response_stream or is_enumerable_stream(resp_data, route) do
-              send_streaming_grpc_response(conn, route, resp_data, start_time, deadline_ms, grpc_web_format, cors_opts)
+              send_streaming_grpc_response(
+                conn,
+                route,
+                resp_data,
+                start_time,
+                deadline_ms,
+                grpc_web_format,
+                cors_opts
+              )
             else
               case Protobuf.encode(route.output_message, resp_data, route.schema) do
                 {:ok, resp_bytes} ->
@@ -339,7 +397,16 @@ defmodule SimpleGrpc.Plug do
 
                   response_encoding = negotiate_response_encoding(conn)
                   framed_response = frame_grpc_message(resp_bytes, encoding: response_encoding)
-                  send_grpc_response(conn, framed_response, 0, "", response_encoding, grpc_web_format, cors_opts)
+
+                  send_grpc_response(
+                    conn,
+                    framed_response,
+                    0,
+                    "",
+                    response_encoding,
+                    grpc_web_format,
+                    cors_opts
+                  )
 
                 {:error, code, msg} ->
                   throw({:error, code, msg})
@@ -403,10 +470,28 @@ defmodule SimpleGrpc.Plug do
           formatted = Exception.format(:error, e, __STACKTRACE__)
           Logger.error("[SimpleGrpc.Plug] Crash in gRPC handler for #{path}:\n#{formatted}")
           emit_telemetry_exception(conn, path, route, :error, e, __STACKTRACE__, start_time)
-          send_trailers_only(conn, 13, "Internal server error: #{msg_str}", nil, grpc_web_format, cors_opts)
+
+          send_trailers_only(
+            conn,
+            13,
+            "Internal server error: #{msg_str}",
+            nil,
+            grpc_web_format,
+            cors_opts
+          )
       catch
         :throw, {:error, %SimpleGrpc.RPC.Status{} = status} ->
-          emit_telemetry_stop(conn, path, route, nil, nil, status.code, status.message, start_time)
+          emit_telemetry_stop(
+            conn,
+            path,
+            route,
+            nil,
+            nil,
+            status.code,
+            status.message,
+            start_time
+          )
+
           send_trailers_only(conn, status, "", nil, grpc_web_format, cors_opts)
 
         :throw, {:error, code, msg, details} ->
@@ -425,7 +510,15 @@ defmodule SimpleGrpc.Plug do
           )
 
           emit_telemetry_exception(conn, path, route, kind, reason, __STACKTRACE__, start_time)
-          send_trailers_only(conn, 13, "Internal server error: #{inspect(reason)}", nil, grpc_web_format, cors_opts)
+
+          send_trailers_only(
+            conn,
+            13,
+            "Internal server error: #{inspect(reason)}",
+            nil,
+            grpc_web_format,
+            cors_opts
+          )
       end
     end
   end
@@ -469,7 +562,15 @@ defmodule SimpleGrpc.Plug do
     )
   end
 
-  defp send_streaming_grpc_response(conn, route, resp_enumerable, start_time, deadline_ms, grpc_web_format, cors_opts) do
+  defp send_streaming_grpc_response(
+         conn,
+         route,
+         resp_enumerable,
+         start_time,
+         deadline_ms,
+         grpc_web_format,
+         cors_opts
+       ) do
     path = conn.request_path
     req_ct = get_req_header(conn, "content-type") |> List.first() || ""
 
@@ -698,7 +799,15 @@ defmodule SimpleGrpc.Plug do
     :telemetry.execute([:simple_grpc, :call, :exception], measurements, meta)
   end
 
-  defp send_grpc_response(conn, framed_response, status_code, status_message, response_encoding, grpc_web_format, cors_opts) do
+  defp send_grpc_response(
+         conn,
+         framed_response,
+         status_code,
+         status_message,
+         response_encoding,
+         grpc_web_format,
+         cors_opts
+       ) do
     req_ct = get_req_header(conn, "content-type") |> List.first() || ""
 
     if grpc_web_format do
@@ -752,19 +861,48 @@ defmodule SimpleGrpc.Plug do
   end
 
   defp maybe_put_encoding_header(conn, enc) when enc in [nil, "", "identity", :identity], do: conn
-  defp maybe_put_encoding_header(conn, enc) when is_binary(enc), do: put_resp_header(conn, "grpc-encoding", enc)
-  defp maybe_put_encoding_header(conn, enc) when is_atom(enc), do: put_resp_header(conn, "grpc-encoding", to_string(enc))
+
+  defp maybe_put_encoding_header(conn, enc) when is_binary(enc),
+    do: put_resp_header(conn, "grpc-encoding", enc)
+
+  defp maybe_put_encoding_header(conn, enc) when is_atom(enc),
+    do: put_resp_header(conn, "grpc-encoding", to_string(enc))
+
   defp maybe_put_encoding_header(conn, _), do: conn
 
   defp maybe_put_cors_headers(conn, nil), do: conn
   defp maybe_put_cors_headers(conn, false), do: conn
-  defp maybe_put_cors_headers(conn, cors_opts) when is_list(cors_opts), do: GrpcWeb.put_cors_headers(conn, cors_opts)
+
+  defp maybe_put_cors_headers(conn, cors_opts) when is_list(cors_opts),
+    do: GrpcWeb.put_cors_headers(conn, cors_opts)
+
   defp maybe_put_cors_headers(conn, _), do: GrpcWeb.put_cors_headers(conn)
 
-  defp send_trailers_only(conn, status_or_code, status_message, details, grpc_web_format, cors_opts)
+  defp send_trailers_only(
+         conn,
+         status_or_code,
+         status_message,
+         details,
+         grpc_web_format,
+         cors_opts
+       )
 
-  defp send_trailers_only(conn, %SimpleGrpc.RPC.Status{} = status, _msg, _details, grpc_web_format, cors_opts) do
-    send_trailers_only(conn, status.code, status.message, status.details, grpc_web_format, cors_opts)
+  defp send_trailers_only(
+         conn,
+         %SimpleGrpc.RPC.Status{} = status,
+         _msg,
+         _details,
+         grpc_web_format,
+         cors_opts
+       ) do
+    send_trailers_only(
+      conn,
+      status.code,
+      status.message,
+      status.details,
+      grpc_web_format,
+      cors_opts
+    )
   end
 
   defp send_trailers_only(conn, status_code, status_message, details, grpc_web_format, cors_opts) do

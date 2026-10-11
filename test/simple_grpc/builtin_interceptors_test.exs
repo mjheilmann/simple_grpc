@@ -16,7 +16,8 @@ defmodule SimpleGrpc.BuiltinInterceptorsTest do
 
       {:ok,
        %{
-         reply: "Hello #{msg} (trace_id=#{trace_id}, parent_id=#{server_tc && server_tc.parent_id})"
+         reply:
+           "Hello #{msg} (trace_id=#{trace_id}, parent_id=#{server_tc && server_tc.parent_id})"
        }}
     end
   end
@@ -145,8 +146,7 @@ defmodule SimpleGrpc.BuiltinInterceptorsTest do
         {Bandit,
          plug:
            {SimpleGrpc.Plug,
-            services: [TraceRecordingServer],
-            interceptors: [SimpleGrpc.Interceptors.TraceContext]},
+            services: [TraceRecordingServer], interceptors: [SimpleGrpc.Interceptors.TraceContext]},
          scheme: :http,
          port: port}
       )

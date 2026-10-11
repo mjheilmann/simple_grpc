@@ -32,11 +32,14 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
   @impl true
   def send_unary(%{plug: plug_mod, plug_opts: plug_opts}, path, payload, opts) do
     custom_headers = Keyword.get(opts, :headers, [])
-    req_ct = Enum.find_value(custom_headers, "application/grpc", fn {k, v} ->
-      if String.downcase(to_string(k)) == "content-type", do: to_string(v)
-    end)
+
+    req_ct =
+      Enum.find_value(custom_headers, "application/grpc", fn {k, v} ->
+        if String.downcase(to_string(k)) == "content-type", do: to_string(v)
+      end)
 
     framed_body = Framing.frame(payload, opts)
+
     final_body =
       if String.contains?(req_ct, "grpc-web-text") do
         Base.encode64(framed_body)
@@ -52,9 +55,11 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
       |> plug_mod.call(plug_opts)
 
     headers = conn.resp_headers
-    resp_ct = Enum.find_value(headers, "", fn {k, v} ->
-      if String.downcase(to_string(k)) == "content-type", do: to_string(v)
-    end)
+
+    resp_ct =
+      Enum.find_value(headers, "", fn {k, v} ->
+        if String.downcase(to_string(k)) == "content-type", do: to_string(v)
+      end)
 
     raw_body =
       if String.contains?(resp_ct, "grpc-web-text") do
@@ -94,6 +99,7 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
 
       {:trailers, trailers, _rest} ->
         {t_code, t_msg, t_rich} = Framing.extract_grpc_status_details(trailers)
+
         if t_rich do
           {:error, t_code, t_msg, t_rich}
         else
@@ -104,19 +110,25 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
         if status_code == 0 do
           {:ok, <<>>, headers, []}
         else
-          if rich_status, do: {:error, status_code, status_msg, rich_status}, else: {:error, status_code, status_msg}
+          if rich_status,
+            do: {:error, status_code, status_msg, rich_status},
+            else: {:error, status_code, status_msg}
         end
 
       {:incomplete, _} ->
         if status_code == 0 do
           {:ok, raw_body, headers, []}
         else
-          if rich_status, do: {:error, status_code, status_msg, rich_status}, else: {:error, status_code, status_msg}
+          if rich_status,
+            do: {:error, status_code, status_msg, rich_status},
+            else: {:error, status_code, status_msg}
         end
 
       {:error, reason} ->
         if status_code != 0 do
-          if rich_status, do: {:error, status_code, status_msg, rich_status}, else: {:error, status_code, status_msg}
+          if rich_status,
+            do: {:error, status_code, status_msg, rich_status},
+            else: {:error, status_code, status_msg}
         else
           {:error, 2, reason}
         end

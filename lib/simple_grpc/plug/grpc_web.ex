@@ -44,12 +44,14 @@ defmodule SimpleGrpc.Plug.GrpcWeb do
     opts_map = Enum.into(opts, %{})
     cors_enabled = Map.get(opts_map, :cors, true)
 
-    cors_opts = [
-      allowed_origins: Map.get(opts_map, :allowed_origins, "*"),
-      allowed_headers: Map.get(opts_map, :allowed_headers, :any),
-      exposed_headers: Map.get(opts_map, :exposed_headers, nil),
-      max_age: Map.get(opts_map, :max_age, 86400)
-    ] |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    cors_opts =
+      [
+        allowed_origins: Map.get(opts_map, :allowed_origins, "*"),
+        allowed_headers: Map.get(opts_map, :allowed_headers, :any),
+        exposed_headers: Map.get(opts_map, :exposed_headers, nil),
+        max_age: Map.get(opts_map, :max_age, 86400)
+      ]
+      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
     has_services =
       Map.has_key?(opts_map, :services) or

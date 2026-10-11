@@ -211,7 +211,8 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
           {:reply, :done, %{state | conn: next_conn, streams: new_streams}}
 
         {:error, next_conn, new_streams, status, msg, rich_status} ->
-          {:reply, {:error, status, msg, rich_status}, %{state | conn: next_conn, streams: new_streams}}
+          {:reply, {:error, status, msg, rich_status},
+           %{state | conn: next_conn, streams: new_streams}}
 
         {:error, next_conn, new_streams, status, msg} ->
           {:reply, {:error, status, msg}, %{state | conn: next_conn, streams: new_streams}}
@@ -369,7 +370,10 @@ defmodule SimpleGrpc.Client.Adapters.Mint do
             if Map.has_key?(req_acc, ref) do
               req_meta = Map.get(req_acc, ref)
               all_headers = req_meta.headers ++ req_meta.trailers
-              {grpc_status, grpc_msg, rich_status} = Framing.extract_grpc_status_details(all_headers)
+
+              {grpc_status, grpc_msg, rich_status} =
+                Framing.extract_grpc_status_details(all_headers)
+
               resp_encoding = extract_encoding(all_headers)
 
               res =

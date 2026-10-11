@@ -48,7 +48,10 @@ defmodule SimpleGrpc.ErrorDetailsTest do
           "account_id" => "acc_12345",
           "service" => "streaming.StreamingService"
         }),
-        ErrorDetails.debug_info(["Handler.ex:42", "Dispatcher.ex:108"], "API key revoked at 2026-10-10")
+        ErrorDetails.debug_info(
+          ["Handler.ex:42", "Dispatcher.ex:108"],
+          "API key revoked at 2026-10-10"
+        )
       ]
 
       {:error, :unauthenticated, "Authentication failed", details}
@@ -63,12 +66,17 @@ defmodule SimpleGrpc.ErrorDetailsTest do
     end
 
     def server_streaming_call(%{message: "stream_error_with_details"}, _stream) do
-      throw({:error, :permission_denied, "Access denied to stream", [
-        ErrorDetails.error_info("PERMISSION_DENIED", "iam.googleapis.com", %{"role" => "viewer"}),
-        ErrorDetails.precondition_failure([
-          %{type: "IAM_ROLE", subject: "user:alice", description: "Requires editor role"}
-        ])
-      ]})
+      throw(
+        {:error, :permission_denied, "Access denied to stream",
+         [
+           ErrorDetails.error_info("PERMISSION_DENIED", "iam.googleapis.com", %{
+             "role" => "viewer"
+           }),
+           ErrorDetails.precondition_failure([
+             %{type: "IAM_ROLE", subject: "user:alice", description: "Requires editor role"}
+           ])
+         ]}
+      )
     end
 
     def server_streaming_call(req, _stream) do
@@ -194,9 +202,10 @@ defmodule SimpleGrpc.ErrorDetailsTest do
     end
 
     test "precondition_failure/1 builder" do
-      precond = ErrorDetails.precondition_failure([
-        %{type: "TOS", subject: "user:1", description: "Terms of service not accepted"}
-      ])
+      precond =
+        ErrorDetails.precondition_failure([
+          %{type: "TOS", subject: "user:1", description: "Terms of service not accepted"}
+        ])
 
       packed = ErrorDetails.pack(precond)
       assert packed.type_url == "type.googleapis.com/google.rpc.PreconditionFailure"
