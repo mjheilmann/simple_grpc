@@ -26,6 +26,10 @@ defmodule SimpleGrpc.IsolatedPlugTest do
   setup_all do
     grpcurl = System.find_executable("grpcurl") || "/opt/homebrew/bin/grpcurl"
 
+    if not File.exists?(grpcurl) do
+      raise "grpcurl executable not found"
+    end
+
     {:ok, pid_a} =
       Bandit.start_link(
         plug: {SimpleGrpc.Plug, services: [ServiceA], reflection: true},
