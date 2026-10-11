@@ -217,6 +217,7 @@ defmodule SimpleGrpc.Client.DSL do
       @doc """
       Returns the canonical gRPC HTTP path for the given RPC name.
       """
+      @spec grpc_path(rpc_name :: atom() | String.t()) :: String.t()
       def grpc_path(rpc_name) do
         case SimpleGrpc.Server.lookup_map(@__grpc_paths__, rpc_name) do
           nil ->
@@ -230,6 +231,7 @@ defmodule SimpleGrpc.Client.DSL do
       @doc """
       Builds a typed struct for the request of the given RPC or message name.
       """
+      @spec build_request(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) :: struct()
       def build_request(rpc_or_msg, attrs \\ %{}) do
         case SimpleGrpc.Server.lookup_message_module(
                @rpc_input_messages,
@@ -248,6 +250,7 @@ defmodule SimpleGrpc.Client.DSL do
       @doc """
       Builds a typed struct for the response of the given RPC or message name.
       """
+      @spec build_response(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) :: struct()
       def build_response(rpc_or_msg, attrs \\ %{}) do
         case SimpleGrpc.Server.lookup_message_module(
                @rpc_output_messages,
@@ -285,6 +288,15 @@ defmodule SimpleGrpc.Client.DSL do
         @doc """
         Invokes the streaming RPC `#{unquote(rpc.name)}`.
         """
+        @spec unquote(snake_name)(
+                conn :: term(),
+                request_arg :: unquote(input_mod).t() | map() | keyword() | Enumerable.t(),
+                opts :: keyword()
+              ) ::
+                {:ok, Enumerable.t() | unquote(output_mod).t()}
+                | {:error, integer(), String.t()}
+                | {:error, integer(), String.t(), term()}
+                | {:error, term()}
         def unquote(snake_name)(conn, request_arg, opts \\ []) do
           SimpleGrpc.Client.DSL.invoke_streaming_rpc(
             conn,
@@ -302,10 +314,24 @@ defmodule SimpleGrpc.Client.DSL do
           )
         end
 
+        @spec unquote(orig_name)(
+                conn :: term(),
+                request_arg :: unquote(input_mod).t() | map() | keyword() | Enumerable.t(),
+                opts :: keyword()
+              ) ::
+                {:ok, Enumerable.t() | unquote(output_mod).t()}
+                | {:error, integer(), String.t()}
+                | {:error, integer(), String.t(), term()}
+                | {:error, term()}
         def unquote(orig_name)(conn, request_arg, opts \\ []) do
           unquote(snake_name)(conn, request_arg, opts)
         end
 
+        @spec unquote(snake_bang)(
+                conn :: term(),
+                request_arg :: unquote(input_mod).t() | map() | keyword() | Enumerable.t(),
+                opts :: keyword()
+              ) :: Enumerable.t() | unquote(output_mod).t()
         def unquote(snake_bang)(conn, request_arg, opts \\ []) do
           case unquote(snake_name)(conn, request_arg, opts) do
             {:ok, result} -> result
@@ -313,6 +339,11 @@ defmodule SimpleGrpc.Client.DSL do
           end
         end
 
+        @spec unquote(orig_bang)(
+                conn :: term(),
+                request_arg :: unquote(input_mod).t() | map() | keyword() | Enumerable.t(),
+                opts :: keyword()
+              ) :: Enumerable.t() | unquote(output_mod).t()
         def unquote(orig_bang)(conn, request_arg, opts \\ []) do
           unquote(snake_bang)(conn, request_arg, opts)
         end
@@ -323,6 +354,15 @@ defmodule SimpleGrpc.Client.DSL do
         @doc """
         Invokes the unary RPC `#{unquote(rpc.name)}`.
         """
+        @spec unquote(snake_name)(
+                conn :: term(),
+                request_arg :: unquote(input_mod).t() | map() | keyword(),
+                opts :: keyword()
+              ) ::
+                {:ok, unquote(output_mod).t()}
+                | {:error, integer(), String.t()}
+                | {:error, integer(), String.t(), term()}
+                | {:error, term()}
         def unquote(snake_name)(conn, request_arg, opts \\ []) do
           SimpleGrpc.Client.DSL.invoke_unary_rpc(
             conn,
@@ -338,10 +378,24 @@ defmodule SimpleGrpc.Client.DSL do
           )
         end
 
+        @spec unquote(orig_name)(
+                conn :: term(),
+                request_arg :: unquote(input_mod).t() | map() | keyword(),
+                opts :: keyword()
+              ) ::
+                {:ok, unquote(output_mod).t()}
+                | {:error, integer(), String.t()}
+                | {:error, integer(), String.t(), term()}
+                | {:error, term()}
         def unquote(orig_name)(conn, request_arg, opts \\ []) do
           unquote(snake_name)(conn, request_arg, opts)
         end
 
+        @spec unquote(snake_bang)(
+                conn :: term(),
+                request_arg :: unquote(input_mod).t() | map() | keyword(),
+                opts :: keyword()
+              ) :: unquote(output_mod).t()
         def unquote(snake_bang)(conn, request_arg, opts \\ []) do
           case unquote(snake_name)(conn, request_arg, opts) do
             {:ok, result} -> result
@@ -349,6 +403,11 @@ defmodule SimpleGrpc.Client.DSL do
           end
         end
 
+        @spec unquote(orig_bang)(
+                conn :: term(),
+                request_arg :: unquote(input_mod).t() | map() | keyword(),
+                opts :: keyword()
+              ) :: unquote(output_mod).t()
         def unquote(orig_bang)(conn, request_arg, opts \\ []) do
           unquote(snake_bang)(conn, request_arg, opts)
         end

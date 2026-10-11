@@ -187,10 +187,52 @@ defmodule SimpleGrpc.Server do
     schema = %{schema | files: [server_file]}
     schema_escaped = Macro.escape(schema)
 
+    callbacks_ast =
+      Enum.map(rpcs, fn rpc ->
+        snake_name = String.to_atom(Macro.underscore(rpc.name))
+        input_mod = Map.get(messages_map, rpc.input, Module.concat(caller_module, rpc.input))
+        output_mod = Map.get(messages_map, rpc.output, Module.concat(caller_module, rpc.output))
+
+        quote do
+          @doc """
+          Handler callback for RPC `#{unquote(rpc.name)}`.
+          """
+          @callback unquote(snake_name)(
+                      request :: unquote(input_mod).t() | map(),
+                      context :: SimpleGrpc.Context.t() | term()
+                    ) ::
+                      {:ok, unquote(output_mod).t() | map() | term()}
+                      | {:error, integer(), String.t()}
+                      | {:error, integer(), String.t(), term()}
+                      | {:error, term()}
+                      | unquote(output_mod).t()
+                      | map()
+
+          @callback unquote(snake_name)(
+                      request :: unquote(input_mod).t() | map()
+                    ) ::
+                      {:ok, unquote(output_mod).t() | map() | term()}
+                      | {:error, integer(), String.t()}
+                      | {:error, integer(), String.t(), term()}
+                      | {:error, term()}
+                      | unquote(output_mod).t()
+                      | map()
+        end
+      end)
+
+    optional_callbacks_list =
+      Enum.flat_map(rpcs, fn rpc ->
+        snake_name = String.to_atom(Macro.underscore(rpc.name))
+        [{snake_name, 2}, {snake_name, 1}]
+      end)
+
     quote do
       unquote_splicing(generated_modules_ast)
 
       @before_compile SimpleGrpc.Server
+
+      unquote_splicing(callbacks_ast)
+      @optional_callbacks unquote(optional_callbacks_list)
 
       @__schema__ unquote(schema_escaped)
       @__grpc_rpcs__ unquote(rpcs_escaped)
@@ -218,6 +260,7 @@ defmodule SimpleGrpc.Server do
       @doc """
       Returns the canonical gRPC HTTP path for the given RPC name.
       """
+      @spec grpc_path(rpc_name :: atom() | String.t()) :: String.t()
       def grpc_path(rpc_name) do
         case SimpleGrpc.Server.lookup_map(@__grpc_paths__, rpc_name) do
           nil ->
@@ -231,6 +274,7 @@ defmodule SimpleGrpc.Server do
       @doc """
       Returns true if the HTTP path matches any RPC path of this service.
       """
+      @spec matches_path?(path :: String.t()) :: boolean()
       def matches_path?(path) when is_binary(path) do
         SimpleGrpc.Server.has_key?(@__grpc_path_to_rpc__, path)
       end
@@ -238,6 +282,7 @@ defmodule SimpleGrpc.Server do
       @doc """
       Returns routing information for the given HTTP path, or nil if unmatched.
       """
+      @spec route_info(path :: String.t()) :: map() | nil
       def route_info(path) when is_binary(path) do
         case SimpleGrpc.Server.lookup_map(@__grpc_path_to_rpc__, path) do
           nil ->
@@ -260,6 +305,10 @@ defmodule SimpleGrpc.Server do
         end
       end
 
+      @doc """
+      Builds a typed struct for the request of the given RPC or message name.
+      """
+      @spec build_request(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) :: struct()
       def build_request(rpc_or_msg, attrs \\ %{}) do
         case SimpleGrpc.Server.lookup_message_module(
                @rpc_input_messages,
@@ -275,6 +324,10 @@ defmodule SimpleGrpc.Server do
         end
       end
 
+      @doc """
+      Builds a typed struct for the response of the given RPC or message name.
+      """
+      @spec build_response(rpc_or_msg :: atom() | String.t(), attrs :: map() | keyword()) :: struct()
       def build_response(rpc_or_msg, attrs \\ %{}) do
         case SimpleGrpc.Server.lookup_message_module(
                @rpc_output_messages,
@@ -290,6 +343,11 @@ defmodule SimpleGrpc.Server do
         end
       end
 
+      @doc """
+      Dispatches an RPC call directly in-process to the server handlers.
+      """
+      @spec dispatch(rpc_or_path :: atom() | String.t(), request_payload :: term(), stream :: term()) ::
+              term()
       def dispatch(rpc_or_path, request_payload, stream \\ nil) do
         rpc =
           SimpleGrpc.Server.lookup_map(@rpc_definitions, rpc_or_path) ||

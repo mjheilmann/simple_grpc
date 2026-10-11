@@ -66,5 +66,7 @@ This roadmap outlines key architectural enhancements and features planned for `S
   - [x] Automatic CORS preflight (`OPTIONS`) handling and response headers exposure for web browsers.
   - [x] Support unary RPCs, server streaming, and rich error details (`grpc-status-details-bin`) over gRPC-Web.
 
-- [ ] **11. Static Code Generation Mix Task**
-  - [ ] Add `mix simple_grpc.gen` to generate static `.ex` files from `.proto` files into `lib/` for projects preferring offline compilation, Credo/Dialyzer checks, and explicit code generation.
+- [x] **11. Dynamic Typespecs & Progressive Type Checking**
+  - [x] Generate `@type t` with concrete field types (primitives, enums, submessages, repeated lists, maps) inside message modules at compile time.
+  - [x] Generate `@spec` definitions for client RPC calls and server handler callbacks.
+  - [x] Provide full compatibility with Elixir 1.17+ progressive type checking, Dialyzer, and Language Servers (ElixirLS / Next LS) without offline code generation.
