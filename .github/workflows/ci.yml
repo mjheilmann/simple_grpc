@@ -91,7 +91,7 @@ jobs:
 
       - name: Install grpcurl
         run: |
-          GRPCURL_VERSION="1.9.2"
+          GRPCURL_VERSION="1.9.4"
           curl -sSL "https://github.com/fullstorydev/grpcurl/releases/download/v${GRPCURL_VERSION}/grpcurl_${GRPCURL_VERSION}_linux_x86_64.tar.gz" | sudo tar -xz -C /usr/local/bin grpcurl
           grpcurl -version
 
