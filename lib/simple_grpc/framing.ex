@@ -68,10 +68,20 @@ defmodule SimpleGrpc.Framing do
             {:error, "Failed to decompress gRPC payload (#{inspect(encoding)}): #{reason}"}
         end
 
+      128 ->
+        trailers = SimpleGrpc.GrpcWeb.parse_trailers_block(payload)
+        {:trailers, trailers, rest}
+
       other ->
         {:error, "Unsupported compression flag: #{other}"}
     end
   end
+
+  @doc """
+  Frames trailers into a gRPC-Web trailer frame (`0x80` flag).
+  """
+  defdelegate frame_trailers(trailers), to: SimpleGrpc.GrpcWeb
+  defdelegate frame_trailers(status_code, status_message, details), to: SimpleGrpc.GrpcWeb
 
   def unframe(binary, _opts) when is_binary(binary) do
     {:incomplete, binary}

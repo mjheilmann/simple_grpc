@@ -32,39 +32,94 @@ defmodule SimpleGrpc.Client.Adapters.Plug do
   @impl true
   def send_unary(%{plug: plug_mod, plug_opts: plug_opts}, path, payload, opts) do
     custom_headers = Keyword.get(opts, :headers, [])
+    req_ct = Enum.find_value(custom_headers, "application/grpc", fn {k, v} ->
+      if String.downcase(to_string(k)) == "content-type", do: to_string(v)
+    end)
+
     framed_body = Framing.frame(payload, opts)
+    final_body =
+      if String.contains?(req_ct, "grpc-web-text") do
+        Base.encode64(framed_body)
+      else
+        framed_body
+      end
 
     conn =
-      Plug.Test.conn(:post, path, framed_body)
-      |> Plug.Conn.put_req_header("content-type", "application/grpc")
+      Plug.Test.conn(:post, path, final_body)
+      |> Plug.Conn.put_req_header("content-type", req_ct)
       |> Plug.Conn.put_req_header("te", "trailers")
       |> apply_headers(custom_headers)
       |> plug_mod.call(plug_opts)
 
     headers = conn.resp_headers
+    resp_ct = Enum.find_value(headers, "", fn {k, v} ->
+      if String.downcase(to_string(k)) == "content-type", do: to_string(v)
+    end)
+
+    raw_body =
+      if String.contains?(resp_ct, "grpc-web-text") do
+        case Base.decode64(conn.resp_body, ignore: :whitespace) do
+          {:ok, dec} -> dec
+          _ -> conn.resp_body
+        end
+      else
+        conn.resp_body
+      end
+
     {status_code, status_msg, rich_status} = Framing.extract_grpc_status_details(headers)
     resp_encoding = extract_encoding(headers)
 
-    if status_code == 0 do
-      case Framing.unframe(conn.resp_body, encoding: resp_encoding) do
-        {:ok, response_payload, _rest} ->
+    case Framing.unframe(raw_body, encoding: resp_encoding) do
+      {:ok, response_payload, rest} ->
+        # Check if trailers were packed in body frame
+        {final_code, final_msg, final_rich} =
+          case Framing.unframe(rest) do
+            {:trailers, trailers, _} ->
+              {t_code, t_msg, t_rich} = Framing.extract_grpc_status_details(trailers)
+              {t_code, t_msg, t_rich || rich_status}
+
+            _ ->
+              {status_code, status_msg, rich_status}
+          end
+
+        if final_code == 0 do
           {:ok, response_payload, headers, []}
+        else
+          if final_rich do
+            {:error, final_code, final_msg, final_rich}
+          else
+            {:error, final_code, final_msg}
+          end
+        end
 
-        {:incomplete, <<>>} ->
+      {:trailers, trailers, _rest} ->
+        {t_code, t_msg, t_rich} = Framing.extract_grpc_status_details(trailers)
+        if t_rich do
+          {:error, t_code, t_msg, t_rich}
+        else
+          {:error, t_code, t_msg}
+        end
+
+      {:incomplete, <<>>} ->
+        if status_code == 0 do
           {:ok, <<>>, headers, []}
+        else
+          if rich_status, do: {:error, status_code, status_msg, rich_status}, else: {:error, status_code, status_msg}
+        end
 
-        {:incomplete, _} ->
-          {:ok, conn.resp_body, headers, []}
+      {:incomplete, _} ->
+        if status_code == 0 do
+          {:ok, raw_body, headers, []}
+        else
+          if rich_status, do: {:error, status_code, status_msg, rich_status}, else: {:error, status_code, status_msg}
+        end
 
-        {:error, reason} ->
+      {:error, reason} ->
+        if status_code != 0 do
+          if rich_status, do: {:error, status_code, status_msg, rich_status}, else: {:error, status_code, status_msg}
+        else
           {:error, 2, reason}
-      end
-    else
-      if rich_status do
-        {:error, status_code, status_msg, rich_status}
-      else
-        {:error, status_code, status_msg}
-      end
+        end
     end
   end
 

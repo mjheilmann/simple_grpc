@@ -95,6 +95,13 @@ defmodule SimpleGrpc.Status do
   alias SimpleGrpc.Schema.WellKnownTypes
 
   @doc """
+  Constructs a new `%SimpleGrpc.RPC.Status{}` struct.
+  """
+  defdelegate new(code_or_atom), to: RPCStatus
+  defdelegate new(code_or_atom, message), to: RPCStatus
+  defdelegate new(code_or_atom, message, details), to: RPCStatus
+
+  @doc """
   Serializes a status code, message, and details list into the Base64-encoded binary format
   expected by the standard `grpc-status-details-bin` trailing metadata header.
   """

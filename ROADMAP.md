@@ -60,8 +60,11 @@ This roadmap outlines key architectural enhancements and features planned for `S
 
 ## 📌 Phase 4: Developer Tooling & Web Interoperability
 
-- [ ] **10. gRPC-Web Support**
-  - [ ] Add `SimpleGrpc.Plug.GrpcWeb` supporting `application/grpc-web` and `application/grpc-web-text` (base64) over HTTP/1.1 and HTTP/2 for direct browser access.
+- [x] **10. gRPC-Web Support**
+  - [x] Add `SimpleGrpc.Plug.GrpcWeb` and native `SimpleGrpc.Plug` support for `application/grpc-web` (binary) and `application/grpc-web-text` (Base64) over HTTP/1.1 and HTTP/2.
+  - [x] Implement gRPC-Web trailers-in-body framing with flag `0x80`.
+  - [x] Automatic CORS preflight (`OPTIONS`) handling and response headers exposure for web browsers.
+  - [x] Support unary RPCs, server streaming, and rich error details (`grpc-status-details-bin`) over gRPC-Web.
 
 - [ ] **11. Static Code Generation Mix Task**
   - [ ] Add `mix simple_grpc.gen` to generate static `.ex` files from `.proto` files into `lib/` for projects preferring offline compilation, Credo/Dialyzer checks, and explicit code generation.
