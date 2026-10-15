@@ -436,19 +436,17 @@ defmodule SimpleGrpc.CompressionTest do
 
   describe "End-to-End Compression over HTTP/2 Mint socket" do
     setup do
-      port = 50200 + :erlang.phash2(make_ref(), 1000)
+      server =
+        start_supervised!(
+          {Bandit,
+           plug: {SimpleGrpc.Plug, services: [CompressionServer]},
+           port: 0,
+           scheme: :http,
+           startup_log: false,
+           thousand_island_options: [num_acceptors: 2]}
+        )
 
-      start_supervised!(
-        {Bandit,
-         plug: {SimpleGrpc.Plug, services: [CompressionServer]},
-         port: port,
-         scheme: :http,
-         startup_log: false,
-         thousand_island_options: [num_acceptors: 2]}
-      )
-
-      # Give Bandit server a few milliseconds to bind
-      Process.sleep(50)
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
 
       schema = CompressionServer.__schema__()
 

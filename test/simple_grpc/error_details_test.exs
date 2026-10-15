@@ -444,16 +444,17 @@ defmodule SimpleGrpc.ErrorDetailsTest do
 
   describe "End-to-End Rich Error Details over HTTP/2 Mint socket" do
     setup do
-      port = 50300 + :erlang.phash2(make_ref(), 1000)
+      server =
+        start_supervised!(
+          {Bandit,
+           plug: {SimpleGrpc.Plug, services: [ErrorTestServer]},
+           port: 0,
+           scheme: :http,
+           startup_log: false,
+           thousand_island_options: [num_acceptors: 2]}
+        )
 
-      start_supervised!(
-        {Bandit,
-         plug: {SimpleGrpc.Plug, services: [ErrorTestServer]},
-         port: port,
-         scheme: :http,
-         startup_log: false,
-         thousand_island_options: [num_acceptors: 2]}
-      )
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
 
       Process.sleep(50)
 
