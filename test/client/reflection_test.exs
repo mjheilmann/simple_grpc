@@ -5,11 +5,11 @@ defmodule SimpleGrpc.Client.ReflectionTest do
   alias SimpleGrpc.Reflection.Descriptor
   alias SimpleGrpc.Client.Reflection, as: ClientReflection
 
-  @proto_file "priv/protos/streaming/streaming_service.proto"
+  @proto_file "test/fixtures/protos/streaming/streaming_service.proto"
 
   defmodule TestServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     def unary_call(req, _stream) do
       {:ok, %{result: "Echo: " <> req.message, sequence: req.sequence + 1, is_final: true}}

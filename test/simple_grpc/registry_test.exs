@@ -10,7 +10,8 @@ defmodule SimpleGrpc.RegistryTest do
 
   describe "Service & Route Registration" do
     test "registers a service schema with lambda handlers" do
-      {:ok, schema} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/custom_prefix/custom_prefix_service.proto")
 
       {:ok, paths} =
         Registry.register_service(schema, %{
@@ -31,7 +32,8 @@ defmodule SimpleGrpc.RegistryTest do
     end
 
     test "hot-replaces an RPC handler at runtime" do
-      {:ok, schema} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/custom_prefix/custom_prefix_service.proto")
 
       Registry.register_service(schema, %{
         echo: fn %{message: m} -> %{reply: "v1: " <> m} end
@@ -54,7 +56,9 @@ defmodule SimpleGrpc.RegistryTest do
     end
 
     test "unregisters service routes" do
-      {:ok, schema} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/custom_prefix/custom_prefix_service.proto")
+
       Registry.register_service(schema, %{echo: fn req -> req end})
 
       assert length(Registry.list_routes()) == 1

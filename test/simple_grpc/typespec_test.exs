@@ -11,7 +11,7 @@ defmodule SimpleGrpc.TypespecTest do
       Code.compile_string("""
       defmodule SimpleGrpc.TypespecTest.Server do
         use SimpleGrpc.Server,
-          server_file: "priv/protos/streaming/streaming_service.proto",
+          server_file: "test/fixtures/protos/streaming/streaming_service.proto",
           service: "StreamingService"
 
         def unary_call(req, _stream), do: %{result: req.message, sequence: req.sequence, is_final: true}
@@ -22,7 +22,7 @@ defmodule SimpleGrpc.TypespecTest do
 
       defmodule SimpleGrpc.TypespecTest.Client do
         use SimpleGrpc.Client,
-          client_file: "priv/protos/streaming/streaming_service.proto",
+          client_file: "test/fixtures/protos/streaming/streaming_service.proto",
           service: "StreamingService"
       end
       """)

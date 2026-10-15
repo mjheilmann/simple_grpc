@@ -5,7 +5,7 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
 
   defmodule WebTestServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/custom_prefix/custom_prefix_service.proto"
+      server_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto"
 
     def echo(%{message: "error_not_found"}, _stream) do
       {:error, :not_found, "Requested item not found"}
@@ -31,7 +31,7 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
 
   defmodule WebStreamingServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     def server_streaming_call(%{message: msg, sequence: seq}, _stream) do
       1..3
@@ -53,9 +53,10 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
 
   setup_all do
     {:ok, schema_prefix} =
-      Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+      Schema.from_file("test/fixtures/protos/custom_prefix/custom_prefix_service.proto")
 
-    {:ok, schema_streaming} = Schema.from_file("priv/protos/streaming/streaming_service.proto")
+    {:ok, schema_streaming} =
+      Schema.from_file("test/fixtures/protos/streaming/streaming_service.proto")
 
     # Start live Bandit server for network HTTP testing
     {:ok, bandit_pid} =

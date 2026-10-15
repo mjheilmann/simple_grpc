@@ -3,11 +3,11 @@ defmodule SimpleGrpc.GrpcurlTest do
 
   alias SimpleGrpc.{Registry, Schema}
 
-  @proto_file "priv/protos/streaming/streaming_service.proto"
+  @proto_file "test/fixtures/protos/streaming/streaming_service.proto"
 
   defmodule StreamingServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     def unary_call(%{message: msg, sequence: seq}, _stream) do
       {:ok, %{result: "Processed: " <> msg, sequence: seq + 1, is_final: true}}
@@ -154,7 +154,7 @@ defmodule SimpleGrpc.GrpcurlTest do
     grpcurl: grpcurl,
     port: port
   } do
-    unregistered_proto = "priv/protos/global_service.proto"
+    unregistered_proto = "test/fixtures/protos/global_service.proto"
 
     {output, exit_code} =
       System.cmd(
@@ -211,8 +211,8 @@ defmodule SimpleGrpc.GrpcurlTest do
 
   test "grpcurl invokes service with multi-file imports, nested submessages, enums, and WKT Timestamp",
        %{grpcurl: grpcurl, port: port} do
-    proto_imports = "priv/protos/imports_test/imports_test.proto"
-    {:ok, schema} = Schema.from_file(proto_imports)
+    proto_imports = "test/fixtures/protos/imports_test/imports_test.proto"
+    {:ok, schema} = Schema.from_file(proto_imports, import_paths: ["test/fixtures/protos"])
 
     SimpleGrpc.register_service(schema, %{
       create_user: fn %{
@@ -265,7 +265,7 @@ defmodule SimpleGrpc.GrpcurlTest do
           "-proto",
           proto_imports,
           "-import-path",
-          "priv/protos",
+          "test/fixtures/protos",
           "-d",
           request_payload,
           "127.0.0.1:#{port}",
@@ -281,8 +281,8 @@ defmodule SimpleGrpc.GrpcurlTest do
   end
 
   test "grpcurl invokes proto2 service using local -proto file", %{grpcurl: grpcurl, port: port} do
-    proto2_file = "priv/protos/proto2_features/proto2_features.proto"
-    {:ok, schema} = Schema.from_file(proto2_file, import_paths: ["priv/protos"])
+    proto2_file = "test/fixtures/protos/proto2_features/proto2_features.proto"
+    {:ok, schema} = Schema.from_file(proto2_file, import_paths: ["test/fixtures/protos"])
 
     SimpleGrpc.register_service(schema, %{
       process_proto2: fn req ->
@@ -306,7 +306,7 @@ defmodule SimpleGrpc.GrpcurlTest do
           "-proto",
           proto2_file,
           "-import-path",
-          "priv/protos",
+          "test/fixtures/protos",
           "-d",
           ~s({"requiredField": "proto2_direct", "requiredId": 77}),
           "127.0.0.1:#{port}",
@@ -325,7 +325,7 @@ defmodule SimpleGrpc.GrpcurlTest do
     grpcurl: grpcurl,
     port: port
   } do
-    edition_proto = "priv/protos/editions/editions_service.proto"
+    edition_proto = "test/fixtures/protos/editions/editions_service.proto"
     {:ok, schema} = Schema.from_file(edition_proto)
 
     SimpleGrpc.register_service(schema, %{
@@ -420,8 +420,8 @@ defmodule SimpleGrpc.GrpcurlTest do
       grpcurl: grpcurl,
       port: port
     } do
-      proto2_file = "priv/protos/proto2_features/proto2_features.proto"
-      {:ok, schema} = Schema.from_file(proto2_file, import_paths: ["priv/protos"])
+      proto2_file = "test/fixtures/protos/proto2_features/proto2_features.proto"
+      {:ok, schema} = Schema.from_file(proto2_file, import_paths: ["test/fixtures/protos"])
 
       SimpleGrpc.register_service(schema, %{
         process_proto2: fn req ->
@@ -468,7 +468,7 @@ defmodule SimpleGrpc.GrpcurlTest do
       grpcurl: grpcurl,
       port: port
     } do
-      edition_proto = "priv/protos/editions/editions_service.proto"
+      edition_proto = "test/fixtures/protos/editions/editions_service.proto"
       {:ok, schema} = Schema.from_file(edition_proto)
 
       SimpleGrpc.register_service(schema, %{

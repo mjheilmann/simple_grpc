@@ -3,11 +3,11 @@ defmodule SimpleGrpc.Client.DynamicCallTest do
 
   alias SimpleGrpc.Schema
 
-  @proto_file "priv/protos/streaming/streaming_service.proto"
+  @proto_file "test/fixtures/protos/streaming/streaming_service.proto"
 
   defmodule TestServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     def unary_call(req, _stream) do
       {:ok, %{result: "Echo: " <> req.message, sequence: req.sequence + 1, is_final: true}}

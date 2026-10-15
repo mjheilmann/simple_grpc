@@ -13,12 +13,12 @@ defmodule SimpleGrpc.ServerTest do
 
   defmodule SampleEmptyServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/empty_service/empty_service.proto"
+      server_file: "test/fixtures/protos/empty_service/empty_service.proto"
   end
 
   defmodule SampleEchoServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/custom_prefix/custom_prefix_service.proto"
+      server_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto"
 
     # In-module handler callback
     def echo(%{message: msg}, _stream) do
@@ -28,7 +28,7 @@ defmodule SimpleGrpc.ServerTest do
 
   defmodule SampleGlobalServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/global_service.proto"
+      server_file: "test/fixtures/protos/global_service.proto"
 
     # In-module handler with 1-arity
     def global_method(%{data: data}) do
@@ -38,7 +38,7 @@ defmodule SimpleGrpc.ServerTest do
 
   defmodule SampleDelegatedServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
+      server_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto",
       handlers: [
         echo: fn %{message: msg} -> %{reply: "Delegated: " <> msg} end
       ]
@@ -46,7 +46,7 @@ defmodule SimpleGrpc.ServerTest do
 
   defmodule SampleStreamingServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     def unary_call(req, _stream) do
       %{result: "Processed: " <> req.message, sequence: req.sequence, is_final: true}
@@ -67,7 +67,7 @@ defmodule SimpleGrpc.ServerTest do
 
   defmodule SampleNestedServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/nested/nested_messages.proto"
+      server_file: "test/fixtures/protos/nested/nested_messages.proto"
 
     def process_nested(req, _stream) do
       req
@@ -76,7 +76,7 @@ defmodule SimpleGrpc.ServerTest do
 
   defmodule SampleDeprecatedServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/deprecated_fields/deprecated_fields.proto"
+      server_file: "test/fixtures/protos/deprecated_fields/deprecated_fields.proto"
 
     def process(req, _stream) do
       req
@@ -87,7 +87,7 @@ defmodule SimpleGrpc.ServerTest do
     server = """
     defmodule TestNoService do
       use SimpleGrpc.Server, 
-        server_file: "priv/protos/common/common_types.proto"
+        server_file: "test/fixtures/protos/common/common_types.proto"
     end
     """
 
@@ -107,7 +107,7 @@ defmodule SimpleGrpc.ServerTest do
     server = """
     defmodule TestMissingInModuleHandler do
       use SimpleGrpc.Server,
-        server_file: "priv/protos/custom_prefix/custom_prefix_service.proto"
+        server_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto"
     end
     """
 
@@ -120,7 +120,7 @@ defmodule SimpleGrpc.ServerTest do
     server = """
     defmodule TestMissingSomeInModuleHandlers do
       use SimpleGrpc.Server,
-        server_file: "priv/protos/streaming/streaming_service.proto"
+        server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
       def unary_call(req, _stream), do: req
     end
@@ -333,7 +333,9 @@ defmodule SimpleGrpc.ServerTest do
   end
 
   test "Coercer and Message.new handle optional fields with explicit presence" do
-    {:ok, schema} = SimpleGrpc.Schema.from_file("priv/protos/scalar_types/scalar_types.proto")
+    {:ok, schema} =
+      SimpleGrpc.Schema.from_file("test/fixtures/protos/scalar_types/scalar_types.proto")
+
     msg = SimpleGrpc.Schema.message(schema, "ScalarRequest")
     ast = SimpleGrpc.Server.Message.generate_module_ast(msg, OptionalTestNamespace)
     Code.eval_quoted(ast)
@@ -368,7 +370,9 @@ defmodule SimpleGrpc.ServerTest do
   end
 
   test "Coercer resolves enum atoms, strings, and integers and populates zero-atom defaults" do
-    {:ok, schema} = SimpleGrpc.Schema.from_file("priv/protos/edge_cases/edge_cases.proto")
+    {:ok, schema} =
+      SimpleGrpc.Schema.from_file("test/fixtures/protos/edge_cases/edge_cases.proto")
+
     msg = SimpleGrpc.Schema.message(schema, "ComplicatedRequest")
     schema_escaped = Macro.escape(schema)
 
@@ -449,7 +453,9 @@ defmodule SimpleGrpc.ServerTest do
       SimpleGrpc.Client.connect({SimpleGrpc.Plug, server: SampleEchoServer}, adapter: :plug)
 
     {:ok, schema} =
-      SimpleGrpc.Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+      SimpleGrpc.Schema.from_file(
+        "test/fixtures/protos/custom_prefix/custom_prefix_service.proto"
+      )
 
     req_bytes = SimpleGrpc.Protobuf.encode!("EchoRequest", %{message: "ServerOptTest"}, schema)
 

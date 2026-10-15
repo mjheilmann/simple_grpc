@@ -5,7 +5,7 @@ defmodule SimpleGrpc.Client.TelemetryAndHeadersTest do
 
   defmodule HeaderEchoServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     defp get_headers(conn_or_stream) do
       case conn_or_stream do
@@ -71,7 +71,7 @@ defmodule SimpleGrpc.Client.TelemetryAndHeadersTest do
 
   defmodule HeaderClient do
     use SimpleGrpc.Client,
-      client_file: "priv/protos/streaming/streaming_service.proto"
+      client_file: "test/fixtures/protos/streaming/streaming_service.proto"
   end
 
   def handle_telemetry(event, measurements, metadata, test_pid) do

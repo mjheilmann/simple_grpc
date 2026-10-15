@@ -53,7 +53,7 @@ defmodule SimpleGrpc.ServerInterceptorTest do
 
   defmodule SecuredEchoServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
+      server_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto",
       interceptors: [UppercaseRequestInterceptor]
 
     def echo(req, ctx) do
@@ -65,7 +65,7 @@ defmodule SimpleGrpc.ServerInterceptorTest do
 
   defmodule PlainEchoClient do
     use SimpleGrpc.Client,
-      client_file: "priv/protos/custom_prefix/custom_prefix_service.proto"
+      client_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto"
   end
 
   describe "server interceptors execution" do

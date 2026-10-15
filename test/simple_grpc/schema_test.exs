@@ -6,7 +6,8 @@ defmodule SimpleGrpc.SchemaTest do
 
   describe "from_file/1" do
     test "loads schema from custom_prefix_service.proto" do
-      {:ok, schema} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/custom_prefix/custom_prefix_service.proto")
 
       assert schema.package == "custom_prefix"
       assert schema.syntax == :proto3
@@ -34,7 +35,7 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "loads schema with streaming rpcs" do
-      {:ok, schema} = Schema.from_file("priv/protos/streaming/streaming_service.proto")
+      {:ok, schema} = Schema.from_file("test/fixtures/protos/streaming/streaming_service.proto")
       service = Schema.service(schema, "StreamingService")
 
       assert service.rpcs["UnaryCall"].request_stream == false
@@ -51,7 +52,7 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "loads schema with nested messages and enums" do
-      {:ok, schema} = Schema.from_file("priv/protos/nested/nested_messages.proto")
+      {:ok, schema} = Schema.from_file("test/fixtures/protos/nested/nested_messages.proto")
       outer_msg = Schema.message(schema, "OuterMessage")
       assert length(outer_msg.nested_messages) > 0
 
@@ -60,7 +61,9 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "find_rpc finds RPC by exact gRPC path" do
-      {:ok, schema} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/custom_prefix/custom_prefix_service.proto")
+
       {service, rpc} = Schema.find_rpc(schema, "/custom_prefix.PrefixService/Echo")
 
       assert service.name == "PrefixService"
@@ -68,7 +71,10 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "loads schema and automatically follows imports (cross-file & Google WKT)" do
-      {:ok, schema} = Schema.from_file("priv/protos/imports_test/imports_test.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/imports_test/imports_test.proto",
+          import_paths: ["test/fixtures/protos"]
+        )
 
       assert schema.package == "imports_test"
 
@@ -95,7 +101,8 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "loads all standard Google Well-Known Types" do
-      {:ok, schema} = Schema.from_file("priv/protos/well_known_types/well_known_types.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/well_known_types/well_known_types.proto")
 
       # Timestamp
       assert %Message{name: "Timestamp"} = Schema.message(schema, "google.protobuf.Timestamp")
@@ -121,8 +128,8 @@ defmodule SimpleGrpc.SchemaTest do
   describe "from_files/2 and merge/1" do
     test "loads multiple proto files and merges them into a unified schema" do
       files = [
-        "priv/protos/common/common_types.proto",
-        "priv/protos/custom_prefix/custom_prefix_service.proto"
+        "test/fixtures/protos/common/common_types.proto",
+        "test/fixtures/protos/custom_prefix/custom_prefix_service.proto"
       ]
 
       {:ok, schema} = Schema.from_files(files)
@@ -134,8 +141,10 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "Schema.merge/1 merges schemas correctly" do
-      {:ok, s1} = Schema.from_file("priv/protos/common/common_types.proto")
-      {:ok, s2} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, s1} = Schema.from_file("test/fixtures/protos/common/common_types.proto")
+
+      {:ok, s2} =
+        Schema.from_file("test/fixtures/protos/custom_prefix/custom_prefix_service.proto")
 
       merged = Schema.merge([s1, s2])
 
@@ -147,7 +156,7 @@ defmodule SimpleGrpc.SchemaTest do
 
   describe "from_directory/2" do
     test "loads all proto files in a directory recursively" do
-      {:ok, schema} = Schema.from_directory("priv/protos/nested")
+      {:ok, schema} = Schema.from_directory("test/fixtures/protos/nested")
 
       assert Schema.message(schema, "OuterMessage") != nil
       assert Schema.message(schema, "ComplexNested") != nil
@@ -155,7 +164,10 @@ defmodule SimpleGrpc.SchemaTest do
 
     test "loads from directory and prunes schema to only the needful service and its dependencies" do
       {:ok, schema} =
-        Schema.from_directory("priv/protos/imports_test", service: "ImportTestService")
+        Schema.from_directory("test/fixtures/protos/imports_test",
+          service: "ImportTestService",
+          import_paths: ["test/fixtures/protos"]
+        )
 
       # Retains only the target service
       assert Map.has_key?(schema.services, "ImportTestService")
@@ -180,7 +192,9 @@ defmodule SimpleGrpc.SchemaTest do
 
   describe "filter_for_service/2" do
     test "returns error if service not found" do
-      {:ok, schema} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/custom_prefix/custom_prefix_service.proto")
+
       assert {:error, msg} = Schema.filter_for_service(schema, "NonExistentService")
       assert msg =~ "not found"
     end
@@ -188,7 +202,11 @@ defmodule SimpleGrpc.SchemaTest do
 
   describe "Cross-File Protobuf Binary Encoding and Decoding" do
     test "encodes and decodes messages with cross-file imported submessages, enums, and timestamps" do
-      {:ok, schema} = Schema.from_file("priv/protos/imports_test/imports_test.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/imports_test/imports_test.proto",
+          import_paths: ["test/fixtures/protos"]
+        )
+
       req_msg = Schema.message(schema, "UserRequest")
 
       user_payload = %{
@@ -226,7 +244,11 @@ defmodule SimpleGrpc.SchemaTest do
     end
 
     test "encodes and decodes imported enums across files" do
-      {:ok, schema} = Schema.from_file("priv/protos/imports_test/imports_test.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/imports_test/imports_test.proto",
+          import_paths: ["test/fixtures/protos"]
+        )
+
       resp_msg = Schema.message(schema, "UserResponse")
 
       payload = %{

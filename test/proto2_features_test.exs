@@ -5,7 +5,7 @@ defmodule SimpleGrpc.Proto2FeaturesTest do
   alias SimpleGrpc.Protobuf
   alias SimpleGrpc.Reflection.Descriptor
 
-  @proto_path "priv/protos/proto2_features/proto2_features.proto"
+  @proto_path "test/fixtures/protos/proto2_features/proto2_features.proto"
 
   setup_all do
     {:ok, schema} = Schema.from_file(@proto_path)
