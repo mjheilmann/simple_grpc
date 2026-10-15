@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ambiguous;
+
+import "types.proto";
+
+service Lookup {
+  rpc Find(FindRequest) returns (FindReply);
+}
+
+message FindRequest {}
+
+message FindReply {}

@@ -91,8 +91,9 @@ defmodule SimpleGrpc.ServerTest do
     end
     """
 
-    assert {:error, reason} = catch_throw(Code.eval_string(server))
-    assert reason =~ "service definition not found"
+    assert_raise CompileError, ~r/no service definition found/, fn ->
+      Code.eval_string(server)
+    end
   end
 
   test "Server Compile succeeds when a service is present with no RPCs" do

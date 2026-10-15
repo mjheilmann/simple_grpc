@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package multi_file;
+
+import "google/protobuf/timestamp.proto";
+import "multi_file/types.proto";
+
+service Greeter {
+  rpc SayHello(HelloRequest) returns (HelloReply);
+}
+
+service Admin {
+  rpc Ping(PingRequest) returns (PingReply);
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloReply {
+  string message = 1;
+  multi_file_types.Person person = 2;
+  repeated multi_file_types.Person friends = 3;
+  google.protobuf.Timestamp sent_at = 4;
+}
+
+message PingRequest {}
+
+message PingReply {
+  bool ok = 1;
+}

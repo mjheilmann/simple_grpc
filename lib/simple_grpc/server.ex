@@ -46,8 +46,15 @@ defmodule SimpleGrpc.Server do
       end
 
   ## Server Options (`use SimpleGrpc.Server`)
-  - `:server_file` - Path to the `.proto` file defining the service.
-  - `:service` - (optional) Name of the target service in the `.proto` if multiple services exist.
+  - `:files` - List of every `.proto` file the service needs, including the files it imports.
+    Any expression that evaluates to a list of paths at compile time works, e.g.
+    `Path.wildcard("priv/protos/greeter/*.proto")`. Imports are not searched for: each
+    `import` must be a bundled well-known type or match the end of exactly one listed path,
+    and a fully-qualified name may be defined by only one listed file. Violations are
+    compile errors.
+  - `:server_file` - Shorthand for `files: [path]` when one file is self-contained.
+  - `:service` - Name of the proto `service` this module implements. Required when the files
+    define more than one service; otherwise optional.
   - `:handlers` - (optional) Keyword list or map delegating specific RPCs to custom handler functions or modules.
 
   ## Handler Return Values
@@ -59,26 +66,27 @@ defmodule SimpleGrpc.Server do
   - Plain map or struct - Automatically treated as `{:ok, value}`.
   """
 
-  alias SimpleGrpc.Server.RPC
+  alias SimpleGrpc.Server.Files
   alias SimpleGrpc.Server.Message
+  alias SimpleGrpc.Server.RPC
 
   defmacro __using__(opts) do
     caller_module = __CALLER__.module
-    server_file = Keyword.fetch!(opts, :server_file)
     target_service = Keyword.get(opts, :service)
 
-    {:proto3, ast} = SimpleGrpc.Parser.parse!(server_file)
+    paths = Files.paths!(opts, __CALLER__)
+    entries = Files.load!(paths, __CALLER__)
 
-    default_service_name =
-      Enum.find_value(ast, fn
-        {:service, [name | _]} when is_binary(name) -> name
-        _ -> nil
-      end)
+    {%Files.Entry{path: server_file, syntax: syntax, ast: ast}, service_name} =
+      Files.pick_service!(entries, target_service, __CALLER__)
 
-    service_name = target_service || default_service_name
-
-    if is_nil(service_name) do
-      throw({:error, "service definition not found in #{server_file}"})
+    if syntax != :proto3 do
+      raise CompileError,
+        file: __CALLER__.file,
+        line: __CALLER__.line,
+        description:
+          "#{server_file} defines the service but is #{inspect(syntax)}; " <>
+            "only proto3 service files are supported"
     end
 
     package =
@@ -183,9 +191,12 @@ defmodule SimpleGrpc.Server do
     path_to_rpc_escaped = Macro.escape(path_to_rpc)
     rpc_to_path_escaped = Macro.escape(rpc_to_path)
 
-    schema = SimpleGrpc.Schema.from_ast(ast)
-    schema = %{schema | files: [server_file]}
-    schema_escaped = Macro.escape(schema)
+    schema_escaped = entries |> Files.merged_schema(paths) |> Macro.escape()
+
+    external_resources_ast =
+      Enum.map(paths, fn path ->
+        quote do: @external_resource(unquote(path))
+      end)
 
     callbacks_ast =
       Enum.map(rpcs, fn rpc ->
@@ -225,6 +236,7 @@ defmodule SimpleGrpc.Server do
       end)
 
     quote do
+      unquote_splicing(external_resources_ast)
       unquote_splicing(generated_modules_ast)
 
       @before_compile SimpleGrpc.Server

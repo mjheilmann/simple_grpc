@@ -39,8 +39,9 @@ model are implemented today; the examples below show the current API.
 
 ## Defining a Server
 
-Define a gRPC service module pointing to your `.proto` file (the one file that defines the
-service; imports of other files are not followed yet, see the concepts page):
+Define a gRPC server module pointing to your `.proto` file. A service that imports other
+files lists all of them with `files: [...]` instead (see [docs/concepts.md](docs/concepts.md));
+`server_file:` is the shorthand for a single self-contained file:
 
 ```elixir
 defmodule MyEchoServer do
