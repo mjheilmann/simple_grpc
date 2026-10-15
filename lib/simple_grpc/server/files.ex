@@ -103,8 +103,8 @@ defmodule SimpleGrpc.Server.Files do
   @doc """
   Picks the entry and service name this server implements.
 
-  With `service:` it must exist in the files. Without it, the first service in
-  source order (listed file order, then position in the file) is used.
+  With `service:` it must exist in the files. Without it, the files must define
+  exactly one service.
   """
   def pick_service!(entries, requested, env) do
     candidates =
@@ -116,11 +116,18 @@ defmodule SimpleGrpc.Server.Files do
     names = Enum.map(candidates, &elem(&1, 1))
 
     case {requested, candidates} do
-      {nil, [first | _]} ->
-        first
+      {nil, [only]} ->
+        only
 
       {nil, []} ->
         error!(env, "no service definition found in #{inspect(Enum.map(entries, & &1.path))}")
+
+      {nil, _several} ->
+        error!(
+          env,
+          "the files define several services (#{Enum.join(names, ", ")}); " <>
+            "set service: to choose which one this module implements"
+        )
 
       {name, _} ->
         case Enum.find(candidates, fn {_entry, service_name} -> service_name == name end) do

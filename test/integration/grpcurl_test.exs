@@ -7,7 +7,8 @@ defmodule SimpleGrpc.GrpcurlTest do
 
   defmodule StreamingServer do
     use SimpleGrpc.Server,
-      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto",
+      service: "StreamingService"
 
     def unary_call(%{message: msg, sequence: seq}, _stream) do
       {:ok, %{result: "Processed: " <> msg, sequence: seq + 1, is_final: true}}

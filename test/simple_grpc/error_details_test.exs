@@ -10,7 +10,8 @@ defmodule SimpleGrpc.ErrorDetailsTest do
 
   defmodule ErrorTestServer do
     use SimpleGrpc.Server,
-      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto",
+      service: "StreamingService"
 
     alias SimpleGrpc.ErrorDetails
     alias SimpleGrpc.RPC.Status, as: RPCStatus

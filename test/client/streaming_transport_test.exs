@@ -3,7 +3,8 @@ defmodule SimpleGrpc.Client.StreamingTransportTest do
 
   defmodule StreamingServer do
     use SimpleGrpc.Server,
-      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto",
+      service: "StreamingService"
 
     def unary_call(req, _stream) do
       {:ok, %{result: "Echo: " <> req.message, sequence: req.sequence, is_final: true}}
