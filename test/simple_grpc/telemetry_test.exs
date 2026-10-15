@@ -8,7 +8,8 @@ defmodule SimpleGrpc.TelemetryTest do
 
   defmodule TelemetryServer do
     use SimpleGrpc.Server,
-      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto",
+      service: "StreamingService"
 
     def unary_call(%{message: "crash"}, _stream) do
       raise RuntimeError, "Intentional crash for telemetry"

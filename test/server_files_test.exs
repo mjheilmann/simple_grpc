@@ -95,6 +95,39 @@ defmodule SimpleGrpc.ServerFilesTest do
       assert Enum.map(AdminServer.__rpcs__(), & &1.name) == ["Ping"]
     end
 
+    test "several services without service: is a compile error listing the candidates" do
+      error =
+        assert_raise CompileError, fn ->
+          compile("""
+          defmodule SimpleGrpc.ServerFilesTest.NoServiceChosen do
+            use SimpleGrpc.Server, files: ["#{@greeter}", "#{@types}"]
+          end
+          """)
+        end
+
+      assert error.description =~ "Greeter"
+      assert error.description =~ "Admin"
+      assert error.description =~ "service:"
+    end
+
+    test "the same applies to services in a single server_file:" do
+      error =
+        assert_raise CompileError, fn ->
+          compile("""
+          defmodule SimpleGrpc.ServerFilesTest.NoServiceChosenSingle do
+            use SimpleGrpc.Server, server_file: "test/fixtures/protos/streaming/streaming_service.proto"
+          end
+          """)
+        end
+
+      assert error.description =~ "StreamingService"
+      assert error.description =~ "MultiStreamService"
+    end
+
+    test "a single service needs no service:" do
+      assert SingleFileServer.__service_name__() == "EmptyService"
+    end
+
     test "unknown service: is a compile error listing what is available" do
       error =
         assert_raise CompileError, fn ->

@@ -5,7 +5,8 @@ defmodule SimpleGrpc.StreamingIntegrationTest do
 
   defmodule FullStreamingServer do
     use SimpleGrpc.Server,
-      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto",
+      service: "StreamingService"
 
     # 1. Unary
     def unary_call(req, _stream) do

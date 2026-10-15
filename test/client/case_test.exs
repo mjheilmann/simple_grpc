@@ -9,7 +9,8 @@ defmodule SimpleGrpc.CaseTest do
 
   defmodule CaseSampleServer do
     use SimpleGrpc.Server,
-      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto",
+      service: "StreamingService"
 
     def unary_call(%{message: msg, sequence: seq}, _stream) do
       {:ok, %{result: "CaseEcho: " <> msg, sequence: seq + 10, is_final: true}}

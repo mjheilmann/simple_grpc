@@ -46,7 +46,8 @@ defmodule SimpleGrpc.ServerTest do
 
   defmodule SampleStreamingServer do
     use SimpleGrpc.Server,
-      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto",
+      service: "StreamingService"
 
     def unary_call(req, _stream) do
       %{result: "Processed: " <> req.message, sequence: req.sequence, is_final: true}
@@ -67,7 +68,8 @@ defmodule SimpleGrpc.ServerTest do
 
   defmodule SampleNestedServer do
     use SimpleGrpc.Server,
-      server_file: "test/fixtures/protos/nested/nested_messages.proto"
+      server_file: "test/fixtures/protos/nested/nested_messages.proto",
+      service: "NestedService"
 
     def process_nested(req, _stream) do
       req
@@ -120,7 +122,7 @@ defmodule SimpleGrpc.ServerTest do
     server = """
     defmodule TestMissingSomeInModuleHandlers do
       use SimpleGrpc.Server,
-        server_file: "test/fixtures/protos/streaming/streaming_service.proto"
+        server_file: "test/fixtures/protos/streaming/streaming_service.proto", service: "StreamingService"
 
       def unary_call(req, _stream), do: req
     end

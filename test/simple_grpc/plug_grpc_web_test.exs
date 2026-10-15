@@ -31,7 +31,8 @@ defmodule SimpleGrpc.PlugGrpcWebTest do
 
   defmodule WebStreamingServer do
     use SimpleGrpc.Server,
-      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto",
+      service: "StreamingService"
 
     def server_streaming_call(%{message: msg, sequence: seq}, _stream) do
       1..3
