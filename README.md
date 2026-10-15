@@ -29,9 +29,18 @@ end
 
 ---
 
+## Concepts
+
+How `simple_grpc` thinks about proto files, services versus servers, messages and plugs
+is described in [docs/concepts.md](docs/concepts.md). It also lists which parts of that
+model are implemented today; the examples below show the current API.
+
+---
+
 ## Defining a Server
 
-Define a gRPC service module pointing to your `.proto` file:
+Define a gRPC service module pointing to your `.proto` file (the one file that defines the
+service; imports of other files are not followed yet, see the concepts page):
 
 ```elixir
 defmodule MyEchoServer do
