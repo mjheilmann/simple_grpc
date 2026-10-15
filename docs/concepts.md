@@ -124,7 +124,7 @@ For client and bidirectional streaming, `request` is a lazy stream of decoded me
 
 | Concept | Today | Target |
 | :--- | :--- | :--- |
-| Explicit `files:` list, import validation | `server_file:` takes one file; imports are ignored | Section 1 |
+| Explicit `files:` list, import validation | Implemented: `files:` list (any compile-time expression), imports and duplicate names validated, `server_file:` kept as shorthand. Not yet: `service:` is optional even when several services exist (the first in source order is used) | Section 1 |
 | Structs in handlers | Structs are generated, but the Plug path passes plain maps | Section 3 |
 | Package-qualified, per-server structs | Structs live under the server module with the short message name only | Section 3 |
 | Plug split | One `SimpleGrpc.Plug` with `services:`, `unmatched:`, `reflection:` and `health:` options, plus a global `SimpleGrpc.Registry` | Section 4 |

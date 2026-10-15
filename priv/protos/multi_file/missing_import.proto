@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package missing;
+
+import "multi_file/does_not_exist.proto";
+
+service Lookup {
+  rpc Find(FindRequest) returns (FindReply);
+}
+
+message FindRequest {}
+
+message FindReply {}
