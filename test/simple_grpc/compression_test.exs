@@ -5,7 +5,7 @@ defmodule SimpleGrpc.CompressionTest do
 
   defmodule CompressionServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     def unary_call(req, _stream) do
       {:ok, %{result: "Hello, " <> req.message, sequence: req.sequence + 1, is_final: true}}
@@ -36,7 +36,7 @@ defmodule SimpleGrpc.CompressionTest do
 
   defmodule CompressionClient do
     use SimpleGrpc.Client,
-      client_file: "priv/protos/streaming/streaming_service.proto",
+      client_file: "test/fixtures/protos/streaming/streaming_service.proto",
       adapter: SimpleGrpc.Client.Adapters.Plug
   end
 

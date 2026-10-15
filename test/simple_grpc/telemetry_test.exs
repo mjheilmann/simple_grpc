@@ -4,11 +4,11 @@ defmodule SimpleGrpc.TelemetryTest do
   alias SimpleGrpc.{Registry, Schema}
   alias SimpleGrpc.Plug, as: GrpcPlug
 
-  @proto_file "priv/protos/streaming/streaming_service.proto"
+  @proto_file "test/fixtures/protos/streaming/streaming_service.proto"
 
   defmodule TelemetryServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     def unary_call(%{message: "crash"}, _stream) do
       raise RuntimeError, "Intentional crash for telemetry"

@@ -43,7 +43,9 @@ defmodule SimpleGrpc.ProtobufTest do
 
   describe "Encoding and Decoding using Message Descriptors" do
     setup do
-      {:ok, schema} = Schema.from_file("priv/protos/custom_prefix/custom_prefix_service.proto")
+      {:ok, schema} =
+        Schema.from_file("test/fixtures/protos/custom_prefix/custom_prefix_service.proto")
+
       req_msg = Schema.message(schema, "EchoRequest")
       resp_msg = Schema.message(schema, "EchoResponse")
       %{schema: schema, req_msg: req_msg, resp_msg: resp_msg}
@@ -334,7 +336,7 @@ defmodule SimpleGrpc.ProtobufTest do
 
   describe "Proto3 optional field presence (explicit presence)" do
     setup do
-      {:ok, schema} = Schema.from_file("priv/protos/scalar_types/scalar_types.proto")
+      {:ok, schema} = Schema.from_file("test/fixtures/protos/scalar_types/scalar_types.proto")
       req_msg = Schema.message(schema, "ScalarRequest")
       %{schema: schema, req_msg: req_msg}
     end
@@ -503,11 +505,11 @@ defmodule SimpleGrpc.ProtobufTest do
 
   describe "Enum Atom <-> Integer Wire Resolution" do
     setup do
-      {:ok, edge_schema} = Schema.from_file("priv/protos/edge_cases/edge_cases.proto")
+      {:ok, edge_schema} = Schema.from_file("test/fixtures/protos/edge_cases/edge_cases.proto")
       edge_msg = Schema.message(edge_schema, "ComplicatedRequest")
 
       {:ok, nested_schema} =
-        Schema.from_file("priv/protos/nested_enum_conflict/nested_enum_conflict.proto")
+        Schema.from_file("test/fixtures/protos/nested_enum_conflict/nested_enum_conflict.proto")
 
       nested_msg = Schema.message(nested_schema, "ListFoosRequest")
 

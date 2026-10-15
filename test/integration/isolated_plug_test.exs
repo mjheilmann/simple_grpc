@@ -3,7 +3,7 @@ defmodule SimpleGrpc.IsolatedPlugTest do
 
   defmodule ServiceA do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     def unary_call(%{message: msg, sequence: seq}, _stream) do
       {:ok, %{result: "ServiceA: " <> msg, sequence: seq + 10, is_final: true}}
@@ -16,7 +16,7 @@ defmodule SimpleGrpc.IsolatedPlugTest do
 
   defmodule ServiceB do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/global_service.proto"
+      server_file: "test/fixtures/protos/global_service.proto"
 
     def global_method(%{data: d}, _stream) do
       {:ok, %{result: "ServiceB: " <> d}}

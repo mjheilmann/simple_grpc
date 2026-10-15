@@ -11,7 +11,7 @@ defmodule SimpleGrpc.ReflectionTest do
 
   describe "Descriptor.encode_file_descriptor/1" do
     test "encodes schema into valid FileDescriptorProto binary payload" do
-      {:ok, schema} = Schema.from_file("priv/protos/streaming/streaming_service.proto")
+      {:ok, schema} = Schema.from_file("test/fixtures/protos/streaming/streaming_service.proto")
       fdp_bytes = Descriptor.encode_file_descriptor(schema)
 
       assert is_binary(fdp_bytes)
@@ -65,7 +65,7 @@ defmodule SimpleGrpc.ReflectionTest do
 
   describe "Server.server_reflection_info/1" do
     setup do
-      {:ok, schema} = Schema.from_file("priv/protos/streaming/streaming_service.proto")
+      {:ok, schema} = Schema.from_file("test/fixtures/protos/streaming/streaming_service.proto")
 
       Registry.register_service(schema, %{
         unary_call: fn req -> {:ok, req} end

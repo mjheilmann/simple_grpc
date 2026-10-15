@@ -7,7 +7,7 @@ defmodule SimpleGrpc.BuiltinInterceptorsTest do
 
   defmodule TraceRecordingServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
+      server_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto",
       interceptors: [SimpleGrpc.Interceptors.TraceContext]
 
     def echo(%{message: msg}, ctx) do
@@ -24,7 +24,7 @@ defmodule SimpleGrpc.BuiltinInterceptorsTest do
 
   defmodule AuthSecuredServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
+      server_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto",
       interceptors: [
         {SimpleGrpc.Interceptors.Auth,
          validator: fn token, _ctx ->
@@ -44,7 +44,7 @@ defmodule SimpleGrpc.BuiltinInterceptorsTest do
 
   defmodule EchoClient do
     use SimpleGrpc.Client,
-      client_file: "priv/protos/custom_prefix/custom_prefix_service.proto"
+      client_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto"
   end
 
   describe "OpenTelemetry / TraceContext interceptor propagation" do

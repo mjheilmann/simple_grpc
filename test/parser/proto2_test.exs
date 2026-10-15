@@ -4,7 +4,10 @@ defmodule SimpleGrpc.Parser.Proto2Test do
   @known_fields [:syntax, :package, :import, :service, :message, :enum, :option, :extend]
 
   defp parse_proto!(rel_path) do
-    path = Path.expand("priv/protos/#{rel_path}", File.cwd!())
+    root =
+      if String.starts_with?(rel_path, "grpc/"), do: "priv/protos", else: "test/fixtures/protos"
+
+    path = Path.expand("#{root}/#{rel_path}", File.cwd!())
     contents = File.read!(path)
     {:ok, ast, "", %{}, _, _} = SimpleGrpc.Parser.Proto2.parse(contents)
     ast

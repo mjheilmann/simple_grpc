@@ -6,7 +6,7 @@ defmodule SimpleGrpc.Client.InterceptorTest do
 
   defmodule EchoServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/custom_prefix/custom_prefix_service.proto"
+      server_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto"
 
     def echo(%{message: msg}, _ctx) do
       {:ok, %{reply: "Hello, #{msg}!"}}
@@ -15,7 +15,7 @@ defmodule SimpleGrpc.Client.InterceptorTest do
 
   defmodule StreamingServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     def unary_call(req, _ctx) do
       {:ok, %{result: "Echo: #{req.message}", sequence: req.sequence, is_final: true}}
@@ -80,18 +80,18 @@ defmodule SimpleGrpc.Client.InterceptorTest do
 
   defmodule EchoClient do
     use SimpleGrpc.Client,
-      client_file: "priv/protos/custom_prefix/custom_prefix_service.proto",
+      client_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto",
       interceptors: [{PrefixMessageInterceptor, [prefix: "Sir "]}]
   end
 
   defmodule PlainEchoClient do
     use SimpleGrpc.Client,
-      client_file: "priv/protos/custom_prefix/custom_prefix_service.proto"
+      client_file: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto"
   end
 
   defmodule StreamingClient do
     use SimpleGrpc.Client,
-      client_file: "priv/protos/streaming/streaming_service.proto"
+      client_file: "test/fixtures/protos/streaming/streaming_service.proto"
   end
 
   setup do
@@ -202,7 +202,7 @@ defmodule SimpleGrpc.Client.InterceptorTest do
         Client.connect(SimpleGrpc.Plug,
           adapter: :plug,
           plug_opts: plug_state,
-          schema: "priv/protos/custom_prefix/custom_prefix_service.proto"
+          schema: "test/fixtures/protos/custom_prefix/custom_prefix_service.proto"
         )
 
       dynamic_interceptor = fn req, ctx, next ->

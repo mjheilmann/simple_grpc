@@ -3,14 +3,14 @@ defmodule SimpleGrpc.ServerFilesTest do
 
   alias SimpleGrpc.Protobuf
 
-  @greeter "priv/protos/multi_file/greeter.proto"
-  @types "priv/protos/multi_file/types.proto"
+  @greeter "test/fixtures/protos/multi_file/greeter.proto"
+  @types "test/fixtures/protos/multi_file/types.proto"
 
   defmodule GreeterServer do
     use SimpleGrpc.Server,
       files: [
-        "priv/protos/multi_file/greeter.proto",
-        "priv/protos/multi_file/types.proto"
+        "test/fixtures/protos/multi_file/greeter.proto",
+        "test/fixtures/protos/multi_file/types.proto"
       ],
       service: "Greeter"
 
@@ -27,8 +27,8 @@ defmodule SimpleGrpc.ServerFilesTest do
   defmodule AdminServer do
     use SimpleGrpc.Server,
       files: [
-        "priv/protos/multi_file/greeter.proto",
-        "priv/protos/multi_file/types.proto"
+        "test/fixtures/protos/multi_file/greeter.proto",
+        "test/fixtures/protos/multi_file/types.proto"
       ],
       service: "Admin"
 
@@ -36,12 +36,12 @@ defmodule SimpleGrpc.ServerFilesTest do
   end
 
   defmodule SingleFileServer do
-    use SimpleGrpc.Server, server_file: "priv/protos/empty_service/empty_service.proto"
+    use SimpleGrpc.Server, server_file: "test/fixtures/protos/empty_service/empty_service.proto"
   end
 
   defmodule WildcardServer do
     use SimpleGrpc.Server,
-      files: Path.wildcard("priv/protos/multi_file/{greeter,types}.proto"),
+      files: Path.wildcard("test/fixtures/protos/multi_file/{greeter,types}.proto"),
       service: "Greeter"
 
     def say_hello(_req, _stream), do: {:ok, %{}}
@@ -121,7 +121,7 @@ defmodule SimpleGrpc.ServerFilesTest do
   describe "server_file: shorthand" do
     test "still works for a single self-contained file" do
       assert SingleFileServer.__schema__().files == [
-               "priv/protos/empty_service/empty_service.proto"
+               "test/fixtures/protos/empty_service/empty_service.proto"
              ]
     end
   end
@@ -148,9 +148,9 @@ defmodule SimpleGrpc.ServerFilesTest do
           defmodule SimpleGrpc.ServerFilesTest.AmbiguousImport do
             use SimpleGrpc.Server,
               files: [
-                "priv/protos/multi_file/ambiguous_import.proto",
-                "priv/protos/multi_file/dup_a/types.proto",
-                "priv/protos/multi_file/dup_b/types.proto"
+                "test/fixtures/protos/multi_file/ambiguous_import.proto",
+                "test/fixtures/protos/multi_file/dup_a/types.proto",
+                "test/fixtures/protos/multi_file/dup_b/types.proto"
               ]
           end
           """)
@@ -166,7 +166,7 @@ defmodule SimpleGrpc.ServerFilesTest do
         assert_raise CompileError, fn ->
           compile("""
           defmodule SimpleGrpc.ServerFilesTest.NoSuchImport do
-            use SimpleGrpc.Server, files: ["priv/protos/multi_file/missing_import.proto"]
+            use SimpleGrpc.Server, files: ["test/fixtures/protos/multi_file/missing_import.proto"]
           end
           """)
         end
@@ -183,10 +183,10 @@ defmodule SimpleGrpc.ServerFilesTest do
           defmodule SimpleGrpc.ServerFilesTest.Duplicate do
             use SimpleGrpc.Server,
               files: [
-                "priv/protos/multi_file/greeter.proto",
-                "priv/protos/multi_file/types.proto",
-                "priv/protos/multi_file/dup_a/types.proto",
-                "priv/protos/multi_file/dup_b/types.proto"
+                "test/fixtures/protos/multi_file/greeter.proto",
+                "test/fixtures/protos/multi_file/types.proto",
+                "test/fixtures/protos/multi_file/dup_a/types.proto",
+                "test/fixtures/protos/multi_file/dup_b/types.proto"
               ],
               service: "Greeter"
           end

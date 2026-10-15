@@ -10,7 +10,7 @@ defmodule SimpleGrpc.ErrorDetailsTest do
 
   defmodule ErrorTestServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     alias SimpleGrpc.ErrorDetails
     alias SimpleGrpc.RPC.Status, as: RPCStatus
@@ -94,7 +94,7 @@ defmodule SimpleGrpc.ErrorDetailsTest do
 
   defmodule ErrorTestClient do
     use SimpleGrpc.Client,
-      client_file: "priv/protos/streaming/streaming_service.proto",
+      client_file: "test/fixtures/protos/streaming/streaming_service.proto",
       adapter: SimpleGrpc.Client.Adapters.Plug
   end
 

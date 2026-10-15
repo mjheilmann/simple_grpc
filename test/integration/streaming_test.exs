@@ -1,11 +1,11 @@
 defmodule SimpleGrpc.StreamingIntegrationTest do
   use ExUnit.Case, async: true
 
-  @proto_file "priv/protos/streaming/streaming_service.proto"
+  @proto_file "test/fixtures/protos/streaming/streaming_service.proto"
 
   defmodule FullStreamingServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     # 1. Unary
     def unary_call(req, _stream) do

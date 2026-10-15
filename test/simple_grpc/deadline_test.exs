@@ -6,7 +6,7 @@ defmodule SimpleGrpc.DeadlineTest do
 
   defmodule SlowServer do
     use SimpleGrpc.Server,
-      server_file: "priv/protos/streaming/streaming_service.proto"
+      server_file: "test/fixtures/protos/streaming/streaming_service.proto"
 
     def unary_call(req, _stream) do
       # If req.sequence contains sleep duration in milliseconds
@@ -32,7 +32,7 @@ defmodule SimpleGrpc.DeadlineTest do
 
   defmodule SlowClient do
     use SimpleGrpc.Client,
-      client_file: "priv/protos/streaming/streaming_service.proto"
+      client_file: "test/fixtures/protos/streaming/streaming_service.proto"
   end
 
   setup_all do
