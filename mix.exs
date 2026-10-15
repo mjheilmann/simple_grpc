@@ -38,7 +38,7 @@ defmodule SimpleGrpc.MixProject do
     [
       main: "readme",
       source_url: @source_url,
-      extras: ["README.md", "LICENSE"]
+      extras: ["README.md", "docs/concepts.md", "LICENSE"]
     ]
   end
 
