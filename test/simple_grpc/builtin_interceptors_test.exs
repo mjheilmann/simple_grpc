@@ -140,16 +140,19 @@ defmodule SimpleGrpc.BuiltinInterceptorsTest do
 
   describe "HTTP/2 Network transport with Interceptors" do
     test "propagates traceparent over actual HTTP/2 network socket" do
-      port = 50_000 + :rand.uniform(10_000)
+      server =
+        start_supervised!(
+          {Bandit,
+           plug:
+             {SimpleGrpc.Plug,
+              services: [TraceRecordingServer],
+              interceptors: [SimpleGrpc.Interceptors.TraceContext]},
+           scheme: :http,
+           port: 0,
+           startup_log: false}
+        )
 
-      start_supervised!(
-        {Bandit,
-         plug:
-           {SimpleGrpc.Plug,
-            services: [TraceRecordingServer], interceptors: [SimpleGrpc.Interceptors.TraceContext]},
-         scheme: :http,
-         port: port}
-      )
+      {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
 
       {:ok, conn} =
         Client.connect("http://localhost:#{port}",
