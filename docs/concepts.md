@@ -27,6 +27,9 @@ use SimpleGrpc.Server,
 - A missing import, an ambiguous match, or two files in the list defining the same
   fully-qualified name is a **compile error**. Nothing is silently ignored.
 - Editing a listed `.proto` recompiles the module that lists it.
+- Entries may be globs: `"priv/protos/greeter/*.proto"` stands for every `.proto` file it
+  matches (sorted; a glob that matches nothing is a compile error). Adding or removing a
+  matching file recompiles the module too.
 
 ## 2. Service and server
 
@@ -124,7 +127,7 @@ For client and bidirectional streaming, `request` is a lazy stream of decoded me
 
 | Concept | Today | Target |
 | :--- | :--- | :--- |
-| Explicit `files:` list, import validation | Implemented: `files:` list (any compile-time expression), imports and duplicate names validated, `server_file:` kept as shorthand. Not yet: `service:` is optional even when several services exist (the first in source order is used) | Section 1 |
+| Explicit `files:` list, import validation | Implemented: `files:` list (any compile-time expression, glob entries supported), imports and duplicate names validated, `server_file:` kept as shorthand. Not yet: `service:` is optional even when several services exist (the first in source order is used) | Section 1 |
 | Structs in handlers | Structs are generated, but the Plug path passes plain maps | Section 3 |
 | Package-qualified, per-server structs | Structs live under the server module with the short message name only | Section 3 |
 | Plug split | One `SimpleGrpc.Plug` with `services:`, `unmatched:`, `reflection:` and `health:` options, plus a global `SimpleGrpc.Registry` | Section 4 |

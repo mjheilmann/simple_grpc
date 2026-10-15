@@ -47,12 +47,19 @@ defmodule SimpleGrpc.Server do
 
   ## Server Options (`use SimpleGrpc.Server`)
   - `:files` - List of every `.proto` file the service needs, including the files it imports.
-    Any expression that evaluates to a list of paths at compile time works, e.g.
-    `Path.wildcard("priv/protos/greeter/*.proto")`. Imports are not searched for: each
-    `import` must be a bundled well-known type or match the end of exactly one listed path,
-    and a fully-qualified name may be defined by only one listed file. Violations are
-    compile errors.
-  - `:server_file` - Shorthand for `files: [path]` when one file is self-contained.
+    Any expression that evaluates to a list of paths at compile time works. Imports are not
+    searched for: each `import` must be a bundled well-known type or match the end of exactly
+    one listed path, and a fully-qualified name may be defined by only one listed file.
+    Violations are compile errors.
+
+    Entries may be globs (`*`, `?`, `[...]`, `{a,b}`, `**`), e.g.
+    `files: ["priv/protos/greeter/*.proto", "priv/protos/common/types.proto"]`. A glob is
+    replaced by the regular `.proto` files it matches, sorted; it is a compile error if it
+    matches none. The list keeps its order and each file appears once. Adding or removing a
+    matching file recompiles the module. Prefer globs in the list over a `Path.wildcard/1`
+    call for the whole list: only the former lets the module notice new files.
+  - `:server_file` - Shorthand for `files: [path]` when one file is self-contained. It is a
+    single path and is never globbed.
   - `:service` - Name of the proto `service` this module implements. Required when the files
     define more than one service; otherwise optional.
   - `:handlers` - (optional) Keyword list or map delegating specific RPCs to custom handler functions or modules.
@@ -74,7 +81,7 @@ defmodule SimpleGrpc.Server do
     caller_module = __CALLER__.module
     target_service = Keyword.get(opts, :service)
 
-    paths = Files.paths!(opts, __CALLER__)
+    {paths, glob_entries} = Files.resolve!(opts, __CALLER__)
     entries = Files.load!(paths, __CALLER__)
 
     {%Files.Entry{path: server_file, syntax: syntax, ast: ast}, service_name} =
@@ -198,6 +205,25 @@ defmodule SimpleGrpc.Server do
         quote do: @external_resource(unquote(path))
       end)
 
+    # `@external_resource` only notices edits to files that already exist. With glob
+    # entries, Mix also asks the module whether the expansion changed (a `.proto` was
+    # added or removed) so it recompiles.
+    mix_recompile_ast =
+      if glob_entries do
+        [
+          quote do
+            @__files_entries__ unquote(glob_entries)
+            @__files_expanded__ unquote(paths)
+
+            @doc false
+            def __mix_recompile__?,
+              do: SimpleGrpc.Server.Files.expand(@__files_entries__) != @__files_expanded__
+          end
+        ]
+      else
+        []
+      end
+
     callbacks_ast =
       Enum.map(rpcs, fn rpc ->
         snake_name = String.to_atom(Macro.underscore(rpc.name))
@@ -237,6 +263,7 @@ defmodule SimpleGrpc.Server do
 
     quote do
       unquote_splicing(external_resources_ast)
+      unquote_splicing(mix_recompile_ast)
       unquote_splicing(generated_modules_ast)
 
       @before_compile SimpleGrpc.Server
