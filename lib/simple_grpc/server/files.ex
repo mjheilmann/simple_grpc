@@ -13,29 +13,69 @@ defmodule SimpleGrpc.Server.Files do
     defstruct [:path, :syntax, :ast, :schema]
   end
 
-  @doc """
-  Returns the list of proto paths requested by the `use` options.
+  @glob_chars ~r/[*?\[{]/
 
-  `files:` may be any expression that evaluates to a list of strings at compile time
-  (a literal, a module attribute, `Path.wildcard/1`, ...). `server_file:` is shorthand
-  for a one-element `files:` list.
+  @doc """
+  Resolves the proto paths requested by the `use` options.
+
+  Returns `{paths, glob_entries}`. `files:` may be any expression that evaluates to a
+  list of strings at compile time (a literal, a module attribute, `Path.wildcard/1`,
+  ...). Entries containing glob characters are expanded (see `expand/1`).
+  `glob_entries` is the `files:` list as written when it contains at least one glob,
+  so the server can later tell whether the expansion changed; otherwise it is `nil`.
+
+  `server_file:` is shorthand for a one-element `files:` list and is never globbed.
   """
-  def paths!(opts, env) do
+  def resolve!(opts, env) do
     case {Keyword.fetch(opts, :files), Keyword.fetch(opts, :server_file)} do
       {{:ok, _}, {:ok, _}} ->
         error!(env, "pass either files: or server_file:, not both")
 
       {{:ok, files_ast}, :error} ->
         {files, _binding} = Code.eval_quoted(files_ast, [], env)
-        validate_paths!(files, env)
+        entries = validate_paths!(files, env)
+        {expand!(entries, env), if(Enum.any?(entries, &glob?/1), do: entries)}
 
       {:error, {:ok, server_file}} ->
-        validate_paths!([server_file], env)
+        {validate_paths!([server_file], env), nil}
 
       {:error, :error} ->
         error!(env, "use SimpleGrpc.Server requires files: (a list of .proto file paths)")
     end
   end
+
+  @doc """
+  Expands `files:` entries into the list of paths to load.
+
+  Plain entries are kept as written. A glob entry is replaced by the regular `.proto`
+  files it matches, sorted. Order follows the list and each file appears once, at its
+  first occurrence. Never raises, so a running server can use it to check whether the
+  expansion still matches what it was compiled with.
+  """
+  def expand(entries) do
+    entries |> Enum.flat_map(&expand_entry/1) |> Enum.uniq()
+  end
+
+  defp expand!(entries, env) do
+    for entry <- entries, glob?(entry), expand_entry(entry) == [] do
+      error!(env, "files: pattern #{inspect(entry)} matched no .proto files")
+    end
+
+    expand(entries)
+  end
+
+  defp expand_entry(entry) do
+    if glob?(entry) do
+      entry
+      |> Path.wildcard()
+      |> Enum.filter(&(File.regular?(&1) and Path.extname(&1) == ".proto"))
+      |> Enum.sort()
+    else
+      [entry]
+    end
+  end
+
+  defp glob?(entry), do: String.match?(entry, @glob_chars)
 
   @doc """
   Parses every listed file and validates the set: all imports must be bundled
