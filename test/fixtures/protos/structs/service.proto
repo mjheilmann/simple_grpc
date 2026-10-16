@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package structs;
+
+service Echoer {
+  rpc Echo(Envelope) returns (Envelope);
+}
+
+message Envelope {
+  string id = 1;
+  Inner inner = 2;
+  repeated Inner items = 3;
+  oneof body {
+    Inner chosen = 5;
+    string text = 6;
+  }
+  Mode mode = 7;
+}
+
+message Inner {
+  string v = 1;
+}
+
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  FAST = 1;
+}

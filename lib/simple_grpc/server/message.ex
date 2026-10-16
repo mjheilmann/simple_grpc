@@ -52,7 +52,7 @@ defmodule SimpleGrpc.Server.Message do
         @type t :: unquote(struct_type_spec)
         @type attrs :: %{optional(atom() | String.t()) => any()} | keyword()
 
-        defstruct unquote(field_atoms)
+        defstruct unquote(field_atoms ++ [__unknown_fields__: []])
 
         @spec new(attrs :: attrs()) :: t()
         def new(attrs \\ %{}) do

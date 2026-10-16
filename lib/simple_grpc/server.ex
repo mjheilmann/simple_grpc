@@ -196,7 +196,7 @@ defmodule SimpleGrpc.Server do
     path_to_rpc_escaped = Macro.escape(path_to_rpc)
     rpc_to_path_escaped = Macro.escape(rpc_to_path)
 
-    schema_escaped = entries |> Files.merged_schema(paths) |> Macro.escape()
+    schema_escaped = entries |> Files.merged_schema(paths, message_index) |> Macro.escape()
 
     external_resources_ast =
       Enum.map(paths, fn path ->

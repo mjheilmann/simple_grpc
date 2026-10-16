@@ -129,7 +129,7 @@ defmodule SimpleGrpc.Protobuf do
       end
     end
 
-    res
+    stamp_struct(res, msg_desc.struct_module)
   end
 
   defp decode_fallback(message_or_mod, binary, schema_ctx) do
@@ -150,8 +150,16 @@ defmodule SimpleGrpc.Protobuf do
         end
       end
 
-      res
+      stamp_struct(res, msg_desc.struct_module)
     end
+  end
+
+  # The compiled codec starts from the struct as `default_map`; the interpreted one decodes
+  # into a plain map and turns it into the message's struct here.
+  defp stamp_struct(decoded, nil), do: decoded
+
+  defp stamp_struct(decoded, module) do
+    decoded |> Map.put_new(:__unknown_fields__, []) |> Map.put(:__struct__, module)
   end
 
   defp message_name(name) when is_binary(name), do: name

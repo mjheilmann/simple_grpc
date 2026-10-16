@@ -25,7 +25,7 @@ defmodule SimpleGrpc.Coercer do
     given_keys =
       raw_map
       |> Map.keys()
-      |> Enum.reject(&(&1 in [:__struct__]))
+      |> Enum.reject(&(&1 in [:__struct__, :__unknown_fields__]))
       |> MapSet.new()
 
     unknown_keys = MapSet.difference(given_keys, valid_field_atoms)
@@ -71,8 +71,12 @@ defmodule SimpleGrpc.Coercer do
         end
       end)
 
-    struct(message_module, coerced_data)
+    struct(message_module, Map.merge(coerced_data, unknown_fields(raw_map)))
   end
+
+  # Fields received on the wire that the schema does not know are carried along.
+  defp unknown_fields(%{__unknown_fields__: unknown}), do: %{__unknown_fields__: unknown}
+  defp unknown_fields(_raw_map), do: %{}
 
   defp to_plain_map(%{__struct__: _} = s), do: Map.from_struct(s)
 

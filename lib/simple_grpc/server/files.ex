@@ -94,9 +94,15 @@ defmodule SimpleGrpc.Server.Files do
   @doc """
   Merges the per-file schemas into one. `files` keeps the paths exactly as listed so
   absolute build-machine paths never end up in compiled modules.
+
+  `struct_modules` maps fully-qualified message names to the struct module they decode into.
   """
-  def merged_schema(entries, paths) do
-    schema = entries |> Enum.map(& &1.schema) |> Schema.merge()
+  def merged_schema(entries, paths, struct_modules \\ %{}) do
+    schema =
+      entries
+      |> Enum.map(&%{&1.schema | struct_modules: struct_modules})
+      |> Schema.merge()
+
     %{schema | files: paths}
   end
 
