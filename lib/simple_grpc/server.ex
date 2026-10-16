@@ -5,7 +5,7 @@ defmodule SimpleGrpc.Server do
 
   ## Features
   - **Zero `protoc` dependency**: Parses `.proto` files at compile time in pure Elixir.
-  - **Typed Message Structs**: Synthesizes nested message modules and structs under the server module namespace.
+  - **Typed Message Structs**: Generates a struct for every message the service reaches (RPC types and the messages their fields use) under the server module, qualified by proto package (e.g. `MyApp.GreeterServer.Greeter.HelloRequest`).
   - **Flexible Handlers**: Supports in-module functions (with arity 1 or 2), external module/MFA references, and dynamic closures.
   - **Streaming Support**: Full HTTP/2 server streaming, client streaming, and bidirectional streaming.
   - **Seamless Plug Integration**: Plugs directly into `SimpleGrpc.Plug` on top of Bandit or Cowboy.
@@ -75,6 +75,7 @@ defmodule SimpleGrpc.Server do
 
   alias SimpleGrpc.Server.Files
   alias SimpleGrpc.Server.Message
+  alias SimpleGrpc.Server.Messages
   alias SimpleGrpc.Server.RPC
 
   defmacro __using__(opts) do
@@ -130,26 +131,25 @@ defmodule SimpleGrpc.Server do
     handlers_ast = Keyword.get(opts, :handlers, [])
     interceptors_ast = Keyword.get(opts, :interceptors, [])
 
-    message_asts =
-      ast
-      |> Enum.filter(fn
-        {:message, [_name | _]} -> true
-        _ -> false
-      end)
-
-    parsed_messages = Enum.map(message_asts, &Message.parse/1)
+    # Every message the service can reach gets a struct, namespaced by proto package.
+    service_package = package || ""
+    message_defs = Messages.collect!(entries, caller_module, rpcs, service_package, __CALLER__)
+    message_index = Messages.index(message_defs)
 
     generated_modules_ast =
-      Enum.map(parsed_messages, fn msg ->
-        Message.generate_module_ast(msg, caller_module)
+      Enum.map(message_defs, fn def ->
+        Message.generate_module_ast(def.message, def.namespace, caller_module)
       end)
 
-    messages_map =
-      parsed_messages
-      |> Enum.map(fn msg ->
-        {msg.name, Module.concat(caller_module, msg.name)}
+    messages_map = Messages.messages_map(message_defs, service_package)
+
+    # `{rpc, input_module, output_module}`; a module is nil for a bundled well-known type
+    rpc_modules =
+      Enum.map(rpcs, fn rpc ->
+        {rpc,
+         Messages.type_module!(rpc.input, service_package, message_index, rpc.name, __CALLER__),
+         Messages.type_module!(rpc.output, service_package, message_index, rpc.name, __CALLER__)}
       end)
-      |> Map.new()
 
     # Build canonical gRPC paths for each RPC
     path_to_rpc =
@@ -168,16 +168,14 @@ defmodule SimpleGrpc.Server do
 
     # Build lookup maps for RPC inputs, outputs, and definitions (including paths)
     rpc_inputs =
-      Enum.flat_map(rpcs, fn rpc ->
-        mod = Map.get(messages_map, rpc.input, Module.concat(caller_module, rpc.input))
+      Enum.flat_map(rpc_modules, fn {rpc, mod, _output} ->
         path = "/#{service_prefix}/#{rpc.name}"
         [{path, mod} | expand_rpc_key_mappings(rpc.name, mod)]
       end)
       |> Map.new()
 
     rpc_outputs =
-      Enum.flat_map(rpcs, fn rpc ->
-        mod = Map.get(messages_map, rpc.output, Module.concat(caller_module, rpc.output))
+      Enum.flat_map(rpc_modules, fn {rpc, _input, mod} ->
         path = "/#{service_prefix}/#{rpc.name}"
         [{path, mod} | expand_rpc_key_mappings(rpc.name, mod)]
       end)
@@ -225,32 +223,32 @@ defmodule SimpleGrpc.Server do
       end
 
     callbacks_ast =
-      Enum.map(rpcs, fn rpc ->
+      Enum.map(rpc_modules, fn {rpc, input_mod, output_mod} ->
         snake_name = String.to_atom(Macro.underscore(rpc.name))
-        input_mod = Map.get(messages_map, rpc.input, Module.concat(caller_module, rpc.input))
-        output_mod = Map.get(messages_map, rpc.output, Module.concat(caller_module, rpc.output))
+        input_type = struct_type(input_mod)
+        output_type = struct_type(output_mod)
 
         quote do
           @doc """
           Handler callback for RPC `#{unquote(rpc.name)}`.
           """
           @callback unquote(snake_name)(
-                      request :: unquote(input_mod).t() | map(),
+                      request :: unquote(input_type) | map(),
                       context :: SimpleGrpc.Context.t() | term()
                     ) ::
-                      {:ok, unquote(output_mod).t() | map() | term()}
+                      {:ok, unquote(output_type) | map() | term()}
                       | {:error, integer(), String.t()}
                       | {:error, integer(), String.t(), term()}
                       | {:error, term()}
-                      | unquote(output_mod).t()
+                      | unquote(output_type)
                       | map()
 
-          @callback unquote(snake_name)(request :: unquote(input_mod).t() | map()) ::
-                      {:ok, unquote(output_mod).t() | map() | term()}
+          @callback unquote(snake_name)(request :: unquote(input_type) | map()) ::
+                      {:ok, unquote(output_type) | map() | term()}
                       | {:error, integer(), String.t()}
                       | {:error, integer(), String.t(), term()}
                       | {:error, term()}
-                      | unquote(output_mod).t()
+                      | unquote(output_type)
                       | map()
         end
       end)
@@ -417,17 +415,17 @@ defmodule SimpleGrpc.Server do
           cond do
             rpc.request_stream and
                 (is_struct(request_payload, Stream) or is_function(request_payload, 2)) ->
-              Stream.map(request_payload, &req_mod.new/1)
+              Stream.map(request_payload, &SimpleGrpc.Server.build_message(req_mod, &1))
 
             is_struct(request_payload, req_mod) ->
               request_payload
 
             is_map(request_payload) or
                 (is_list(request_payload) and Keyword.keyword?(request_payload)) ->
-              req_mod.new(request_payload)
+              SimpleGrpc.Server.build_message(req_mod, request_payload)
 
             rpc.request_stream and is_list(request_payload) ->
-              Enum.map(request_payload, &req_mod.new/1)
+              Enum.map(request_payload, &SimpleGrpc.Server.build_message(req_mod, &1))
 
             true ->
               request_payload
@@ -437,19 +435,19 @@ defmodule SimpleGrpc.Server do
           {:ok, data} ->
             cond do
               is_struct(data, Stream) or is_function(data, 2) ->
-                Stream.map(data, &resp_mod.new/1)
+                Stream.map(data, &SimpleGrpc.Server.build_message(resp_mod, &1))
 
               is_list(data) and Keyword.keyword?(data) and data != [] ->
-                resp_mod.new(data)
+                SimpleGrpc.Server.build_message(resp_mod, data)
 
               is_list(data) and rpc.response_stream ->
-                Enum.map(data, &resp_mod.new/1)
+                Enum.map(data, &SimpleGrpc.Server.build_message(resp_mod, &1))
 
               is_struct(data, resp_mod) ->
                 data
 
               is_map(data) ->
-                resp_mod.new(data)
+                SimpleGrpc.Server.build_message(resp_mod, data)
 
               true ->
                 data
@@ -514,18 +512,26 @@ defmodule SimpleGrpc.Server do
   end
 
   @doc """
-  Fetches an RPC message module from the map.
+  Fetches an RPC message module from the map. The module is `nil` for a bundled
+  well-known type, which has no struct.
   """
   def fetch_rpc_module!(map, key, kind, caller_mod) when is_map(map) do
-    case Map.get(map, key) do
-      nil ->
+    case Map.fetch(map, key) do
+      {:ok, mod} ->
+        mod
+
+      :error ->
         raise ArgumentError,
               "Could not find #{kind} message module for RPC #{inspect(key)} in #{inspect(caller_mod)}"
-
-      mod ->
-        mod
     end
   end
+
+  @doc """
+  Builds a message from `attrs` with `module`, or returns `attrs` unchanged when there
+  is no struct module (`nil`, a bundled well-known type).
+  """
+  def build_message(nil, attrs), do: attrs
+  def build_message(module, attrs), do: module.new(attrs)
 
   @doc """
   Looks up a message module by RPC name or direct message name.
@@ -658,6 +664,10 @@ defmodule SimpleGrpc.Server do
   def normalize_handler_result({:error, msg}) when is_binary(msg), do: {:error, 2, msg}
   def normalize_handler_result({:error, reason}), do: {:error, 2, inspect(reason)}
   def normalize_handler_result(result), do: {:ok, result}
+
+  # Well-known types have no generated struct and stay plain maps.
+  defp struct_type(nil), do: quote(do: map())
+  defp struct_type(module), do: quote(do: unquote(module).t())
 
   defp expand_rpc_key_mappings(rpc_name, val) do
     snake_atom = String.to_atom(Macro.underscore(rpc_name))

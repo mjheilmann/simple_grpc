@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package same_svc;
+
+import "multi_file/same_name/one.proto";
+import "multi_file/same_name/two.proto";
+
+service Swapper {
+  rpc Swap(same_one.Item) returns (same_two.Item);
+}

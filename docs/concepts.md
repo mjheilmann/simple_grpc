@@ -47,7 +47,7 @@ one service.
 defmodule MyApp.GreeterServer do
   use SimpleGrpc.Server, files: [...], service: "Greeter"
 
-  def say_hello(%MyApp.GreeterServer.HelloRequest{} = req, _context) do
+  def say_hello(%MyApp.GreeterServer.Greeter.HelloRequest{} = req, _context) do
     {:ok, %{message: "Hello, " <> req.name}}
   end
 end
@@ -60,8 +60,11 @@ the same module can be served by several plugs or ports and tested in memory.
 
 ## 3. Messages are structs
 
-Each server module generates a struct for every message in its file set, namespaced
-under the module and qualified by proto package. Handlers receive these structs.
+Each server module generates a struct for every message its service can reach (the RPC
+input and output types and, transitively, every message type their fields mention),
+namespaced under the module and qualified by proto package. Other messages in the listed
+files, such as another service's, get no struct and cannot cause a name collision.
+Handlers receive these structs.
 Responses may be structs, maps, or keyword lists; the encoder checks them against the
 schema.
 
@@ -129,7 +132,7 @@ For client and bidirectional streaming, `request` is a lazy stream of decoded me
 | :--- | :--- | :--- |
 | Explicit `files:` list, import validation | Implemented: `files:` list (any compile-time expression, glob entries supported), imports and duplicate names validated, `server_file:` kept as shorthand. `service:` is required when the files define several services. | Section 1 |
 | Structs in handlers | Structs are generated, but the Plug path passes plain maps | Section 3 |
-| Package-qualified, per-server structs | Structs live under the server module with the short message name only | Section 3 |
+| Package-qualified, per-server structs | Implemented: every message the service reaches gets a struct under the server module, qualified by proto package (`MyApp.GreeterServer.Greeter.HelloRequest`); a name collision is a compile error. Well-known types stay plain maps | Section 3 |
 | Plug split | One `SimpleGrpc.Plug` with `services:`, `unmatched:`, `reflection:` and `health:` options, plus a global `SimpleGrpc.Registry` | Section 4 |
 | `SimpleGrpc.Service` behaviour | Informal `__schema__/0`, `__rpcs__/0`, `route_info/1` functions | Section 2 |
 | Reflection by logical filename | Matches schemas by file basename and package heuristics | Section 5 |

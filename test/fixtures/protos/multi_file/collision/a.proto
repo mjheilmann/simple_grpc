@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package col_x;
+
+import "multi_file/collision/b.proto";
+
+service Col {
+  rpc Do(Thing) returns (Thing);
+}
+
+message Thing {
+  colX.Thing other = 1;
+}

@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package emp;
+
+import "google/protobuf/empty.proto";
+
+service Pinger {
+  rpc Ping(google.protobuf.Empty) returns (PingReply);
+}
+
+message PingReply {
+  bool ok = 1;
+}

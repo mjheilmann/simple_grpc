@@ -23,8 +23,12 @@ defmodule SimpleGrpc.Server.Message do
 
   @doc """
   Generates the AST for a message module and all of its nested message submodules.
+
+  The module is `parent_module.<message name>`. `schema_module` is the module whose
+  `__schema__/0` describes the message; it defaults to `parent_module`.
   """
-  def generate_module_ast(%Message{} = message, parent_module) do
+  def generate_module_ast(%Message{} = message, parent_module, schema_module \\ nil) do
+    schema_module = schema_module || parent_module
     mod_name = Module.concat(parent_module, message.name)
     field_atoms = struct_field_names(message)
     fields_escaped = Macro.escape(message.fields)
@@ -33,7 +37,7 @@ defmodule SimpleGrpc.Server.Message do
 
     nested_submodules_ast =
       Enum.map(message.nested_messages, fn nested_msg ->
-        generate_module_ast(nested_msg, mod_name)
+        generate_module_ast(nested_msg, mod_name, schema_module)
       end)
 
     field_type_specs = build_field_types(message.fields, parent_module)
@@ -92,8 +96,8 @@ defmodule SimpleGrpc.Server.Message do
         def __nested_enums__, do: unquote(enums_escaped)
 
         def __schema__ do
-          if function_exported?(unquote(parent_module), :__schema__, 0) do
-            apply(unquote(parent_module), :__schema__, [])
+          if function_exported?(unquote(schema_module), :__schema__, 0) do
+            apply(unquote(schema_module), :__schema__, [])
           else
             nil
           end
