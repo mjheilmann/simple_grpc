@@ -17,3 +17,7 @@ message Outer {
   }
   Item inner = 1;
 }
+
+message Registry {
+  map<string, Item> items = 1;
+}

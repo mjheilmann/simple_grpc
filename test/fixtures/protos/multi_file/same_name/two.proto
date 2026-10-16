@@ -10,3 +10,7 @@ message Box {
   Item item = 1;
   repeated Item items = 2;
 }
+
+message Registry {
+  map<string, Item> items = 1;
+}

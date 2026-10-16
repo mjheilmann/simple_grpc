@@ -33,6 +33,11 @@ defmodule SimpleGrpc.ServerDecodeStructsTest do
       :persistent_term.put({__MODULE__, :last_request}, req)
       {:ok, req}
     end
+
+    def register(req, _stream) do
+      :persistent_term.put({__MODULE__, :last_request}, req)
+      {:ok, %{items: Map.new(req.items, fn {k, v} -> {k, %{b: v.a}} end)}}
+    end
   end
 
   defmodule RelativeServer do
@@ -249,6 +254,21 @@ defmodule SimpleGrpc.ServerDecodeStructsTest do
 
       assert %{item: %{__struct__: SwapperServer.SameOne.Item}} = dynamic
       assert dynamic == compiled
+    end
+  end
+
+  describe "map values written with a relative name" do
+    test "resolve in their own package", %{conn: conn} do
+      schema = SwapperServer.__schema__()
+      request = Protobuf.encode!("same_one.Registry", %{items: %{"k" => %{a: "one"}}}, schema)
+
+      {:ok, resp, _headers, _trailers} = grpc_call(conn, "/same_svc.Swapper/Register", request)
+      {:ok, reply} = Protobuf.decode("same_two.Registry", resp, schema)
+
+      assert %{items: %{"k" => %{__struct__: SwapperServer.SameOne.Item, a: "one"}}} =
+               :persistent_term.get({SwapperServer, :last_request})
+
+      assert %{items: %{"k" => %{__struct__: SwapperServer.SameTwo.Item, b: "one"}}} = reply
     end
   end
 

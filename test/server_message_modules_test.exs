@@ -24,6 +24,9 @@ defmodule SimpleGrpc.ServerMessageModulesTest do
     def swap(req, _stream), do: {:ok, %{b: req.a}}
     def wrap(req, _stream), do: {:ok, %{item: %{b: req.item.a}}}
     def nest(req, _stream), do: {:ok, req}
+
+    def register(req, _stream),
+      do: {:ok, %{items: Map.new(req.items, fn {k, v} -> {k, %{b: v.a}} end)}}
   end
 
   defmodule AdminServer do
