@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package wkt_transitive;
+
+import "google/rpc/status.proto";
+
+service Failer {
+  rpc Fail(Failure) returns (Failure);
+}
+
+message Failure {
+  google.rpc.Status status = 1;
+}

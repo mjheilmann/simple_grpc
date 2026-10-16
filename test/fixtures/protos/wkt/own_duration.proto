@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package wkt_own;
+
+import "google/protobuf/duration.proto";
+
+service Windower {
+  rpc Window(Window) returns (Window);
+}
+
+message Duration {
+  string text = 1;
+}
+
+message Window {
+  Duration own = 1;
+  google.protobuf.Duration real = 2;
+}
