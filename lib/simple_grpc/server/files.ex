@@ -99,11 +99,37 @@ defmodule SimpleGrpc.Server.Files do
   """
   def merged_schema(entries, paths, struct_modules \\ %{}) do
     schema =
-      entries
-      |> Enum.map(&%{&1.schema | struct_modules: struct_modules})
+      (well_known_schemas(entries) ++ Enum.map(entries, & &1.schema))
+      |> Enum.map(&%{&1 | struct_modules: struct_modules})
       |> Schema.merge()
 
     %{schema | files: paths}
+  end
+
+  # The bundled schemas of the well-known types the files import, directly or through
+  # other well-known types. They come first so a listed message that happens to share a
+  # short name with one of them (a `Duration` of your own) keeps that alias.
+  defp well_known_schemas(entries) do
+    entries
+    |> Enum.flat_map(& &1.schema.imports)
+    |> well_known_imports(MapSet.new())
+    |> Enum.sort()
+    |> Enum.map(&WellKnownTypes.schema_for/1)
+  end
+
+  defp well_known_imports([], seen), do: seen
+
+  defp well_known_imports([import | rest], seen) do
+    case WellKnownTypes.schema_for(import) do
+      nil ->
+        well_known_imports(rest, seen)
+
+      _ when is_map_key(seen, import) ->
+        well_known_imports(rest, seen)
+
+      schema ->
+        well_known_imports(schema.imports ++ rest, MapSet.put(seen, import))
+    end
   end
 
   @doc """

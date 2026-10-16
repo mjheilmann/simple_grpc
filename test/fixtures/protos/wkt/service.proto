@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package wkt;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+
+service Stamper {
+  rpc Stamp(Stamped) returns (Stamped);
+}
+
+message Stamped {
+  string id = 1;
+  google.protobuf.Timestamp at = 2;
+  google.protobuf.Duration ttl = 3;
+  google.protobuf.FieldMask mask = 4;
+  repeated google.protobuf.Timestamp history = 5;
+}
