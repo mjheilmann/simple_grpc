@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package prune;
+
+import "prune/other.proto";
+
+service Pruner {
+  rpc Run(Request) returns (Response);
+}
+
+message Request {
+  map<string, Entry> entries = 1;
+  oneof choice {
+    Leaf leaf = 2;
+    string text = 3;
+  }
+}
+
+message Entry {}
+
+message Leaf {
+  prune_other.Shared shared = 1;
+}
+
+message Response {
+  repeated Outer.Child children = 1;
+  Kind kind = 2;
+}
+
+message Outer {
+  message Child {
+    Sibling sibling = 1;
+  }
+  message Sibling {}
+}
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+}
+
+message Unused {}

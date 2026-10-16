@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package col_x;
+
+service Col {
+  rpc Run(Thing) returns (Thing);
+}
+
+message Thing {}

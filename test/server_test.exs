@@ -152,7 +152,7 @@ defmodule SimpleGrpc.ServerTest do
   test "Server Compile succeeds with delegated opts handlers" do
     assert SampleDelegatedServer.__service_name__() == "PrefixService"
     response = SampleDelegatedServer.dispatch(:echo, %{message: "Test"})
-    assert response == %SampleDelegatedServer.EchoResponse{reply: "Delegated: Test"}
+    assert response == %SampleDelegatedServer.CustomPrefix.EchoResponse{reply: "Delegated: Test"}
   end
 
   test "Generates canonical gRPC paths and route matching metadata" do
@@ -167,8 +167,8 @@ defmodule SimpleGrpc.ServerTest do
     assert info.rpc_name == "Echo"
     assert info.service == "PrefixService"
     assert info.package == "custom_prefix"
-    assert info.input_module == SampleEchoServer.EchoRequest
-    assert info.output_module == SampleEchoServer.EchoResponse
+    assert info.input_module == SampleEchoServer.CustomPrefix.EchoRequest
+    assert info.output_module == SampleEchoServer.CustomPrefix.EchoResponse
 
     assert SampleEchoServer.route_info("/non/existent/path") == nil
 
@@ -178,24 +178,26 @@ defmodule SimpleGrpc.ServerTest do
   end
 
   test "Generates message modules, structs, and constructors for input/output messages" do
-    req = %SampleEchoServer.EchoRequest{message: "ping"}
+    req = %SampleEchoServer.CustomPrefix.EchoRequest{message: "ping"}
     assert req.message == "ping"
 
-    req_from_new = SampleEchoServer.EchoRequest.new(%{message: "ping_new"})
+    req_from_new = SampleEchoServer.CustomPrefix.EchoRequest.new(%{message: "ping_new"})
     assert req_from_new.message == "ping_new"
 
-    resp = %SampleEchoServer.EchoResponse{reply: "pong"}
+    resp = %SampleEchoServer.CustomPrefix.EchoResponse{reply: "pong"}
     assert resp.reply == "pong"
 
     assert SampleEchoServer.__messages__() == %{
-             "EchoRequest" => SampleEchoServer.EchoRequest,
-             "EchoResponse" => SampleEchoServer.EchoResponse
+             "custom_prefix.EchoRequest" => SampleEchoServer.CustomPrefix.EchoRequest,
+             "custom_prefix.EchoResponse" => SampleEchoServer.CustomPrefix.EchoResponse,
+             "EchoRequest" => SampleEchoServer.CustomPrefix.EchoRequest,
+             "EchoResponse" => SampleEchoServer.CustomPrefix.EchoResponse
            }
   end
 
   test "Extracts message field metadata via __fields__/0 and __field__/1" do
-    assert SampleEchoServer.EchoRequest.__message_name__() == "EchoRequest"
-    [field] = SampleEchoServer.EchoRequest.__fields__()
+    assert SampleEchoServer.CustomPrefix.EchoRequest.__message_name__() == "EchoRequest"
+    [field] = SampleEchoServer.CustomPrefix.EchoRequest.__fields__()
 
     assert field.name == :message
     assert field.type == "string"
@@ -203,9 +205,9 @@ defmodule SimpleGrpc.ServerTest do
     assert field.kind == :field
     assert field.deprecated == false
 
-    assert SampleEchoServer.EchoRequest.__field__(:message) == field
-    assert SampleEchoServer.EchoRequest.__field__("message") == field
-    assert SampleEchoServer.EchoRequest.__field__(:unknown) == nil
+    assert SampleEchoServer.CustomPrefix.EchoRequest.__field__(:message) == field
+    assert SampleEchoServer.CustomPrefix.EchoRequest.__field__("message") == field
+    assert SampleEchoServer.CustomPrefix.EchoRequest.__field__(:unknown) == nil
   end
 
   test "Handles streaming RPC modifiers and multiple RPCs in service" do
@@ -228,27 +230,32 @@ defmodule SimpleGrpc.ServerTest do
     assert bidi_stream.request_stream == true
     assert bidi_stream.response_stream == true
 
-    req = %SampleStreamingServer.StreamRequest{message: "hello", sequence: 1}
+    req = %SampleStreamingServer.Streaming.StreamRequest{message: "hello", sequence: 1}
     assert req.message == "hello"
     assert req.sequence == 1
 
-    resp = %SampleStreamingServer.StreamResponse{result: "world", sequence: 1, is_final: true}
+    resp = %SampleStreamingServer.Streaming.StreamResponse{
+      result: "world",
+      sequence: 1,
+      is_final: true
+    }
+
     assert resp.result == "world"
     assert resp.sequence == 1
     assert resp.is_final == true
   end
 
   test "Handles nested message modules, maps, oneofs, and repeated fields" do
-    mid = %SampleNestedServer.OuterMessage.MiddleMessage{middle_field: "mid_val"}
+    mid = %SampleNestedServer.Nested.OuterMessage.MiddleMessage{middle_field: "mid_val"}
     assert mid.middle_field == "mid_val"
 
-    deep = %SampleNestedServer.OuterMessage.MiddleMessage.InnerMessage.DeepMessage{
+    deep = %SampleNestedServer.Nested.OuterMessage.MiddleMessage.InnerMessage.DeepMessage{
       deep_field: "deep_val"
     }
 
     assert deep.deep_field == "deep_val"
 
-    fields = SampleNestedServer.OuterMessage.__fields__()
+    fields = SampleNestedServer.Nested.OuterMessage.__fields__()
 
     repeated_field = Enum.find(fields, &(&1.name == :middle_list))
     assert repeated_field.prefix == :repeated
@@ -267,31 +274,40 @@ defmodule SimpleGrpc.ServerTest do
   end
 
   test "Handles deprecated fields and field options" do
-    active_field = SampleDeprecatedServer.DeprecatedRequest.__field__(:active_field)
+    active_field =
+      SampleDeprecatedServer.DeprecatedFields.DeprecatedRequest.__field__(:active_field)
+
     assert active_field.deprecated == false
 
-    legacy_field = SampleDeprecatedServer.DeprecatedRequest.__field__(:legacy_field)
+    legacy_field =
+      SampleDeprecatedServer.DeprecatedFields.DeprecatedRequest.__field__(:legacy_field)
+
     assert legacy_field.deprecated == true
   end
 
   test "Dispatches RPC calls by RPC name and by canonical gRPC HTTP path" do
     # Dispatch by atom RPC name
     response = SampleEchoServer.dispatch(:echo, %{message: "Hello World"})
-    assert response == %SampleEchoServer.EchoResponse{reply: "Echo: Hello World"}
+    assert response == %SampleEchoServer.CustomPrefix.EchoResponse{reply: "Echo: Hello World"}
 
     # Dispatch by string RPC name
     response_str = SampleEchoServer.dispatch("Echo", %{message: "String RPC"})
-    assert response_str == %SampleEchoServer.EchoResponse{reply: "Echo: String RPC"}
+    assert response_str == %SampleEchoServer.CustomPrefix.EchoResponse{reply: "Echo: String RPC"}
 
     # Dispatch by full gRPC HTTP path
     response_path =
       SampleEchoServer.dispatch("/custom_prefix.PrefixService/Echo", %{message: "HTTP Path Call"})
 
-    assert response_path == %SampleEchoServer.EchoResponse{reply: "Echo: HTTP Path Call"}
+    assert response_path == %SampleEchoServer.CustomPrefix.EchoResponse{
+             reply: "Echo: HTTP Path Call"
+           }
 
     # Keyword list input
     response_kw = SampleEchoServer.dispatch("Echo", message: "Keyword World")
-    assert response_kw == %SampleEchoServer.EchoResponse{reply: "Echo: Keyword World"}
+
+    assert response_kw == %SampleEchoServer.CustomPrefix.EchoResponse{
+             reply: "Echo: Keyword World"
+           }
 
     # Global service dispatch
     global_response = SampleGlobalServer.dispatch(:global_method, %{data: "Global Payload"})
@@ -301,7 +317,7 @@ defmodule SimpleGrpc.ServerTest do
   test "Dispatches streaming service RPCs with in-module handlers" do
     unary_resp = SampleStreamingServer.dispatch(:unary_call, %{message: "test", sequence: 5})
 
-    assert unary_resp == %SampleStreamingServer.StreamResponse{
+    assert unary_resp == %SampleStreamingServer.Streaming.StreamResponse{
              result: "Processed: test",
              sequence: 5,
              is_final: true
@@ -313,7 +329,7 @@ defmodule SimpleGrpc.ServerTest do
         sequence: 10
       })
 
-    assert server_stream_resp == %SampleStreamingServer.StreamResponse{
+    assert server_stream_resp == %SampleStreamingServer.Streaming.StreamResponse{
              result: "Stream: stream",
              sequence: 10,
              is_final: true
@@ -322,11 +338,11 @@ defmodule SimpleGrpc.ServerTest do
 
   test "build_request and build_response helpers populate defaults and validate fields" do
     req = SampleEchoServer.build_request(:echo, %{message: "Ping"})
-    assert req == %SampleEchoServer.EchoRequest{message: "Ping"}
+    assert req == %SampleEchoServer.CustomPrefix.EchoRequest{message: "Ping"}
 
     # Defaults populated
     empty_resp = SampleEchoServer.build_response(:echo, %{})
-    assert empty_resp == %SampleEchoServer.EchoResponse{reply: ""}
+    assert empty_resp == %SampleEchoServer.CustomPrefix.EchoResponse{reply: ""}
 
     # Unknown field raises ArgumentError
     assert_raise ArgumentError, ~r/Unknown field\(s\) \[:non_existent\]/, fn ->
@@ -435,14 +451,11 @@ defmodule SimpleGrpc.ServerTest do
              )
   end
 
-  test "Server generates struct modules for all messages defined in proto, including non-RPC messages" do
-    # ComplexNested is not used in NestedService RPCs, but is generated as a struct
-    assert Code.ensure_loaded?(SampleNestedServer.ComplexNested)
-    assert Code.ensure_loaded?(SampleNestedServer.OuterMessage)
-
-    struct = SampleNestedServer.ComplexNested.new(%{status: :ACTIVE})
-    assert struct.status == :ACTIVE
-    assert is_struct(struct, SampleNestedServer.ComplexNested)
+  test "Server generates struct modules only for messages the service reaches" do
+    # ComplexNested is not used by any NestedService RPC or message
+    assert Code.ensure_loaded?(SampleNestedServer.Nested.OuterMessage)
+    assert Code.ensure_loaded?(SampleNestedServer.Nested.OuterResponse)
+    refute Code.ensure_loaded?(SampleNestedServer.Nested.ComplexNested)
   end
 
   test "SimpleGrpc.Plug correctly initializes routes when configured with server: ServerModule" do

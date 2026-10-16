@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package same_one;
+
+message Item {
+  string a = 1;
+}

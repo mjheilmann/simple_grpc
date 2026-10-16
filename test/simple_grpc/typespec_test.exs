@@ -35,7 +35,7 @@ defmodule SimpleGrpc.TypespecTest do
 
   describe "Message struct typespecs" do
     test "generated message modules expose @type t and @spec new/1", %{beam_map: beam_map} do
-      req_mod = SimpleGrpc.TypespecTest.Server.StreamRequest
+      req_mod = SimpleGrpc.TypespecTest.Server.Streaming.StreamRequest
       req_bin = Map.fetch!(beam_map, req_mod)
 
       {:ok, types} = Code.Typespec.fetch_types(req_bin)
@@ -51,7 +51,7 @@ defmodule SimpleGrpc.TypespecTest do
     end
 
     test "generates typed struct instances with .new/1" do
-      req_mod = SimpleGrpc.TypespecTest.Server.StreamRequest
+      req_mod = SimpleGrpc.TypespecTest.Server.Streaming.StreamRequest
       req = apply(req_mod, :new, [[message: "hello typed world", sequence: 42]])
       assert req.__struct__ == req_mod
       assert req.message == "hello typed world"
