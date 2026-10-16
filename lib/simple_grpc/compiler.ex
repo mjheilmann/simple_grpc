@@ -246,6 +246,16 @@ defmodule SimpleGrpc.Compiler do
     end
   end
 
+  # The name the compiled codec dispatches a submessage by: its fully-qualified name, which
+  # is unique in the schema (a field's type as written can be relative, and its short name
+  # ambiguous between packages).
+  defp sub_message_name(%Field{submessage_desc: %Message{full_name: full_name}}, schema)
+       when is_binary(full_name) do
+    if Map.has_key?(schema.messages, full_name), do: full_name
+  end
+
+  defp sub_message_name(_field, _schema), do: nil
+
   defp generate_field_decode_clauses(loop_fn, %Field{kind: :oneof, fields: subfields}, schema) do
     Enum.flat_map(subfields, fn subfield ->
       generate_field_decode_clauses(loop_fn, subfield, schema)
@@ -255,13 +265,13 @@ defmodule SimpleGrpc.Compiler do
   defp generate_field_decode_clauses(
          loop_fn,
          %Field{tag_bytes: tag_bytes, wire_type: wire_type} = field,
-         _schema
+         schema
        )
        when is_binary(tag_bytes) and is_integer(wire_type) do
     field_name = field.name
     is_single_byte_tag = byte_size(tag_bytes) == 1
 
-    case {wire_type, field.type, field.prefix} do
+    case {wire_type, sub_message_name(field, schema) || field.type, field.prefix} do
       # Repeated Submessage
       {2, sub_type, :repeated} when is_binary(sub_type) and field.submessage_desc != nil ->
         if is_single_byte_tag do
@@ -813,13 +823,13 @@ defmodule SimpleGrpc.Compiler do
     branches
   end
 
-  defp generate_field_encode_expr(%Field{prefix: :repeated} = field, _schema) do
+  defp generate_field_encode_expr(%Field{prefix: :repeated} = field, schema) do
     name_atom = field.name
     name_str = Atom.to_string(name_atom)
     tag_bytes = field.tag_bytes
 
     if field.submessage_desc != nil do
-      sub_type = field.type
+      sub_type = sub_message_name(field, schema) || field.type
 
       quote do
         case data do
@@ -1055,10 +1065,10 @@ defmodule SimpleGrpc.Compiler do
   defp generate_single_field_encode_expr(
          %Field{submessage_desc: %Message{}} = field,
          val_ast,
-         _schema,
+         schema,
          _is_oneof
        ) do
-    sub_type = field.type
+    sub_type = sub_message_name(field, schema) || field.type
     tag_bytes = field.tag_bytes
 
     quote do

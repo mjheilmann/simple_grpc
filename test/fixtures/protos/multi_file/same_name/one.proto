@@ -5,3 +5,15 @@ package same_one;
 message Item {
   string a = 1;
 }
+
+message Box {
+  Item item = 1;
+  repeated Item items = 2;
+}
+
+message Outer {
+  message Item {
+    string n = 1;
+  }
+  Item inner = 1;
+}

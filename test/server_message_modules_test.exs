@@ -22,6 +22,8 @@ defmodule SimpleGrpc.ServerMessageModulesTest do
       files: ["test/fixtures/protos/multi_file/same_name/*.proto"]
 
     def swap(req, _stream), do: {:ok, %{b: req.a}}
+    def wrap(req, _stream), do: {:ok, %{item: %{b: req.item.a}}}
+    def nest(req, _stream), do: {:ok, req}
   end
 
   defmodule AdminServer do

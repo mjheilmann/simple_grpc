@@ -26,6 +26,25 @@ defmodule SimpleGrpc.ServerDecodeStructsTest do
 
     def wrap(req, _stream) do
       :persistent_term.put({__MODULE__, :last_request}, req)
+      {:ok, %{item: %{b: req.item.a}, items: Enum.map(req.items, &%{b: &1.a})}}
+    end
+
+    def nest(req, _stream) do
+      :persistent_term.put({__MODULE__, :last_request}, req)
+      {:ok, req}
+    end
+  end
+
+  defmodule RelativeServer do
+    use SimpleGrpc.Server, files: ["test/fixtures/protos/multi_file/rel_rpc/*.proto"]
+
+    def run(req, _stream) do
+      :persistent_term.put({__MODULE__, :last_request}, req)
+      {:ok, %{a: req.a}}
+    end
+
+    def wrap(req, _stream) do
+      :persistent_term.put({__MODULE__, :last_request}, req)
       {:ok, %{item: %{b: req.item.a}}}
     end
   end
@@ -37,6 +56,7 @@ defmodule SimpleGrpc.ServerDecodeStructsTest do
     Registry.clear()
     SimpleGrpc.register_service(EchoServer)
     SimpleGrpc.register_service(SwapperServer)
+    SimpleGrpc.register_service(RelativeServer)
     :ok
   end
 
@@ -160,6 +180,75 @@ defmodule SimpleGrpc.ServerDecodeStructsTest do
                :persistent_term.get({SwapperServer, :last_request})
 
       assert %{__struct__: SwapperServer.SameTwo.Item, b: "hello"} = reply
+    end
+  end
+
+  describe "relative type names resolve from the scope that declares them" do
+    test "a field type resolves within its own package", %{conn: conn} do
+      schema = SwapperServer.__schema__()
+
+      request =
+        Protobuf.encode!(
+          "same_one.Box",
+          %{item: %{a: "one"}, items: [%{a: "x"}, %{a: "y"}]},
+          schema
+        )
+
+      {:ok, resp, _headers, _trailers} = grpc_call(conn, "/same_svc.Swapper/Wrap", request)
+      {:ok, reply} = Protobuf.decode("same_two.Box", resp, schema)
+
+      assert %{
+               __struct__: SwapperServer.SameOne.Box,
+               item: %{__struct__: SwapperServer.SameOne.Item, a: "one"},
+               items: [%{__struct__: SwapperServer.SameOne.Item}, %{a: "y"}]
+             } = :persistent_term.get({SwapperServer, :last_request})
+
+      assert %{
+               __struct__: SwapperServer.SameTwo.Box,
+               item: %{__struct__: SwapperServer.SameTwo.Item, b: "one"},
+               items: [%{__struct__: SwapperServer.SameTwo.Item, b: "x"}, %{b: "y"}]
+             } = reply
+    end
+
+    test "a nested message type wins over a top-level one of the same name", %{conn: conn} do
+      schema = SwapperServer.__schema__()
+      request = Protobuf.encode!("same_one.Outer", %{inner: %{n: "deep"}}, schema)
+
+      {:ok, resp, _headers, _trailers} = grpc_call(conn, "/same_svc.Swapper/Nest", request)
+      {:ok, reply} = Protobuf.decode("same_one.Outer", resp, schema)
+
+      assert %{inner: %{__struct__: SwapperServer.SameOne.Outer.Item, n: "deep"}} =
+               :persistent_term.get({SwapperServer, :last_request})
+
+      assert %{inner: %{__struct__: SwapperServer.SameOne.Outer.Item, n: "deep"}} = reply
+    end
+
+    test "an rpc type written relatively resolves in the service's package", %{conn: conn} do
+      schema = RelativeServer.__schema__()
+      request = Protobuf.encode!("rel_a.Item", %{a: "r"}, schema)
+
+      {:ok, resp, _headers, _trailers} = grpc_call(conn, "/rel_a.Relative/Run", request)
+      {:ok, reply} = Protobuf.decode("rel_a.Item", resp, schema)
+
+      assert %{__struct__: RelativeServer.RelA.Item, a: "r"} =
+               :persistent_term.get({RelativeServer, :last_request})
+
+      assert reply.a == "r"
+    end
+  end
+
+  describe "relative type names in the interpreted codec" do
+    test "resolve the same way as in the compiled one" do
+      schema = SwapperServer.__schema__()
+      interpreted = %{schema | compiled_module: nil}
+
+      bytes = Protobuf.encode!("same_one.Box", %{item: %{a: "one"}, items: [%{a: "x"}]}, schema)
+
+      {:ok, compiled} = Protobuf.decode("same_one.Box", bytes, schema)
+      {:ok, dynamic} = Protobuf.decode("same_one.Box", bytes, interpreted)
+
+      assert %{item: %{__struct__: SwapperServer.SameOne.Item}} = dynamic
+      assert dynamic == compiled
     end
   end
 

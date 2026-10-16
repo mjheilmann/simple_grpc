@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package rel_a;
+
+service Relative {
+  rpc Run(Item) returns (Item);
+}
+
+message Item {
+  string a = 1;
+}
