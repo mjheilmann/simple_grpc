@@ -81,9 +81,14 @@ defmodule SimpleGrpc.Server.Files do
   Parses every listed file and validates the set: all imports must be bundled
   well-known types or match exactly one listed file, and no fully-qualified name may
   be defined by more than one file.
+
+  A listed copy of a bundled file (a vendored `google/protobuf/timestamp.proto`) is
+  dropped when it defines the same messages and enums as the bundled one, and is an
+  error when it differs: the bundled definitions are what other gRPC implementations
+  speak.
   """
   def load!(paths, env) do
-    entries = Enum.map(paths, &load_entry!(&1, env))
+    entries = paths |> Enum.map(&load_entry!(&1, env)) |> drop_bundled_copies!(env)
 
     check_imports!(entries, env)
     check_duplicate_definitions!(entries, env)
@@ -197,6 +202,80 @@ defmodule SimpleGrpc.Server.Files do
       {:error, reason} ->
         error!(env, "failed to parse #{inspect(path)}: #{reason}")
     end
+  end
+
+  defp drop_bundled_copies!(entries, env) do
+    Enum.reject(entries, fn entry ->
+      case bundled_counterpart(entry.path) do
+        nil ->
+          false
+
+        {import, bundled} ->
+          case differences(entry.schema, bundled) do
+            [] ->
+              true
+
+            names ->
+              error!(
+                env,
+                "#{entry.path} defines #{Enum.join(names, ", ")} differently from the bundled " <>
+                  "#{import}. Remove it from files: to use the bundled definition."
+              )
+          end
+      end
+    end)
+  end
+
+  defp bundled_counterpart(path) do
+    Enum.find_value(WellKnownTypes.all_schemas(), fn {import, schema} ->
+      if import_matches?(path, import), do: {import, schema}
+    end)
+  end
+
+  # Fully-qualified names whose definition differs between the two schemas.
+  defp differences(%Schema{} = listed, %Schema{} = bundled) do
+    ours = signatures(listed)
+    theirs = signatures(bundled)
+
+    (Map.keys(ours) ++ Map.keys(theirs))
+    |> Enum.uniq()
+    |> Enum.filter(&(Map.get(ours, &1) != Map.get(theirs, &1)))
+    |> Enum.sort()
+  end
+
+  # Fully-qualified name to a normalized description of the definition (field numbers,
+  # names, types and cardinality; comments and options do not matter).
+  defp signatures(%Schema{package: package} = schema) do
+    messages =
+      for message <- unique_by_full_name(schema.messages), into: %{} do
+        fields =
+          message.fields
+          |> Enum.flat_map(fn
+            %{kind: :oneof, fields: members} -> members
+            field -> [field]
+          end)
+          |> Enum.map(fn field ->
+            {field.number, field.name, field.kind, field.prefix,
+             normalize_type(field.type, package), normalize_type(field.key_type, package),
+             normalize_type(field.val_type, package)}
+          end)
+          |> Enum.sort()
+
+        {full_name(message), {:message, fields}}
+      end
+
+    enums =
+      for enum <- unique_by_full_name(schema.enums), into: %{} do
+        {full_name(enum), {:enum, enum.fields |> Enum.to_list() |> Enum.sort()}}
+      end
+
+    Map.merge(messages, enums)
+  end
+
+  defp normalize_type(nil, _package), do: nil
+
+  defp normalize_type(type, package) do
+    type |> to_string() |> String.trim_leading(".") |> String.replace_prefix("#{package}.", "")
   end
 
   defp check_imports!(entries, env) do

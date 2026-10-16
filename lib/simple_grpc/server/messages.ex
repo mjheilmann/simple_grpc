@@ -15,6 +15,7 @@ defmodule SimpleGrpc.Server.Messages do
   alias SimpleGrpc.Schema
   alias SimpleGrpc.Schema.Field
   alias SimpleGrpc.Schema.WellKnownTypes
+  alias SimpleGrpc.WKT
   alias SimpleGrpc.Server.Message
 
   defmodule Def do
@@ -37,7 +38,7 @@ defmodule SimpleGrpc.Server.Messages do
     roots =
       Enum.flat_map(rpcs, fn rpc ->
         for type <- [rpc.input, rpc.output],
-            fqn = resolve!(type, service_package, index, rpc.name, env),
+            {:message, fqn} <- [resolve!(type, service_package, index, rpc.name, env)],
             do: fqn
       end)
 
@@ -74,17 +75,18 @@ defmodule SimpleGrpc.Server.Messages do
   @doc """
   Resolves the type name `type` as written in an `rpc` of a service in `package`.
 
-  Returns the struct module, or `nil` for a bundled well-known type (those stay plain
-  maps). Raises a `CompileError` if the type is not part of the file set.
+  Returns the struct module, or `nil` for a bundled well-known type that has no struct
+  (see `SimpleGrpc.WKT.struct_modules/0`; those stay plain maps). Raises a `CompileError`
+  if the type is not part of the file set.
   """
   def type_module!(type, package, index, rpc_name, env) do
     case resolve!(type, package, index, rpc_name, env) do
-      nil -> nil
-      fqn -> Map.fetch!(index, fqn)
+      {:message, fqn} -> Map.fetch!(index, fqn)
+      {:well_known, fqn} -> Map.get(WKT.struct_modules(), fqn)
     end
   end
 
-  # The fully-qualified name of the message `type` refers to, or nil for a bundled
+  # `{:message, fqn}` for a message of the file set, `{:well_known, fqn}` for a bundled
   # well-known type.
   defp resolve!(type, package, index, rpc_name, env) do
     resolved =
@@ -92,24 +94,19 @@ defmodule SimpleGrpc.Server.Messages do
       |> candidates(package)
       |> Enum.find_value(fn candidate ->
         cond do
-          Map.has_key?(index, candidate) -> {:ok, candidate}
-          well_known?(candidate) -> {:ok, nil}
+          Map.has_key?(index, candidate) -> {:message, candidate}
+          well_known?(candidate) -> {:well_known, candidate}
           true -> nil
         end
       end)
 
-    case resolved do
-      {:ok, fqn} ->
-        fqn
-
-      nil ->
-        raise CompileError,
-          file: env.file,
-          line: env.line,
-          description:
-            "rpc #{rpc_name}: type #{inspect(type)} is not defined in the listed files " <>
-              "and is not a bundled well-known type"
-    end
+    resolved ||
+      raise CompileError,
+        file: env.file,
+        line: env.line,
+        description:
+          "rpc #{rpc_name}: type #{inspect(type)} is not defined in the listed files " <>
+            "and is not a bundled well-known type"
   end
 
   defp entry_defs(entry, server_module) do

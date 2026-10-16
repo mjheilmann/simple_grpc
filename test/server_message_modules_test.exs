@@ -120,10 +120,10 @@ defmodule SimpleGrpc.ServerMessageModulesTest do
       assert info.output_module == SwapperServer.SameTwo.Item
     end
 
-    test "a bundled well-known type has no struct module" do
+    test "a bundled well-known type with a struct resolves to the library's module" do
       info = EmptyInputServer.route_info("/emp.Pinger/Ping")
 
-      assert info.input_module == nil
+      assert info.input_module == SimpleGrpc.WKT.Empty
       assert info.output_module == EmptyInputServer.Emp.PingReply
     end
 

@@ -11,17 +11,37 @@ defmodule SimpleGrpc.WKT do
   - `google.protobuf.Empty`
   """
 
+  require SimpleGrpc.Server.Message
+
+  @struct_messages ~w(Timestamp Duration FieldMask Empty)
+
+  @doc """
+  The schema of all bundled well-known types. It describes the structs of this module.
+  """
+  def __schema__, do: SimpleGrpc.Schema.WellKnownTypes.unified_schema()
+
+  @doc """
+  Maps the fully-qualified names of the well-known messages that are structs to their
+  modules. Servers decode these types into these structs; every other well-known type
+  (`Any`, `Struct`, `Value`, the wrappers, ...) stays a plain map.
+  """
+  def struct_modules do
+    Map.new(@struct_messages, &{"google.protobuf." <> &1, Module.concat(__MODULE__, &1)})
+  end
+
   # ===========================================================================
   # Timestamp
   # ===========================================================================
 
   defmodule Timestamp do
     @moduledoc """
-    Helpers for `google.protobuf.Timestamp`.
+    `google.protobuf.Timestamp` struct and helpers.
     """
 
+    SimpleGrpc.Server.Message.define_bundled_struct("google.protobuf.Timestamp")
+
     @doc """
-    Returns a Timestamp map representing the current UTC time.
+    Returns a Timestamp representing the current UTC time.
     """
     def now do
       from_datetime(DateTime.utc_now())
@@ -41,7 +61,7 @@ defmodule SimpleGrpc.WKT do
           else: {micro, micro * 1_000}
 
       adjusted_seconds = if micro < 0, do: seconds - 1, else: seconds
-      %{seconds: adjusted_seconds, nanos: nanos}
+      %__MODULE__{seconds: adjusted_seconds, nanos: nanos}
     end
 
     def from_datetime(%NaiveDateTime{} = ndt) do
@@ -80,14 +100,14 @@ defmodule SimpleGrpc.WKT do
     Converts unix seconds (integer or float) to a protobuf Timestamp map.
     """
     def from_unix_seconds(sec) when is_integer(sec) do
-      %{seconds: sec, nanos: 0}
+      %__MODULE__{seconds: sec, nanos: 0}
     end
 
     def from_unix_seconds(sec) when is_float(sec) do
       s = trunc(sec)
       rem_sec = sec - s
       nanos = trunc(rem_sec * 1_000_000_000)
-      %{seconds: s, nanos: nanos}
+      %__MODULE__{seconds: s, nanos: nanos}
     end
 
     @doc """
@@ -108,21 +128,23 @@ defmodule SimpleGrpc.WKT do
 
   defmodule Duration do
     @moduledoc """
-    Helpers for `google.protobuf.Duration`.
+    `google.protobuf.Duration` struct and helpers.
     """
 
+    SimpleGrpc.Server.Message.define_bundled_struct("google.protobuf.Duration")
+
     @doc """
-    Converts seconds (integer or float) to a protobuf Duration map.
+    Converts seconds (integer or float) to a `google.protobuf.Duration`.
     """
     def from_seconds(sec) when is_integer(sec) do
-      %{seconds: sec, nanos: 0}
+      %__MODULE__{seconds: sec, nanos: 0}
     end
 
     def from_seconds(sec) when is_float(sec) do
       s = trunc(sec)
       rem_sec = sec - s
       nanos = trunc(rem_sec * 1_000_000_000)
-      %{seconds: s, nanos: nanos}
+      %__MODULE__{seconds: s, nanos: nanos}
     end
 
     @doc """
@@ -137,10 +159,10 @@ defmodule SimpleGrpc.WKT do
     end
 
     @doc """
-    Converts integer milliseconds to a protobuf Duration map.
+    Converts integer milliseconds to a `google.protobuf.Duration`.
     """
     def from_milliseconds(ms) when is_integer(ms) do
-      %{seconds: div(ms, 1000), nanos: rem(ms, 1000) * 1_000_000}
+      %__MODULE__{seconds: div(ms, 1000), nanos: rem(ms, 1000) * 1_000_000}
     end
 
     @doc """
@@ -329,14 +351,16 @@ defmodule SimpleGrpc.WKT do
 
   defmodule FieldMask do
     @moduledoc """
-    Helpers for `google.protobuf.FieldMask`.
+    `google.protobuf.FieldMask` struct and helpers.
     """
 
+    SimpleGrpc.Server.Message.define_bundled_struct("google.protobuf.FieldMask")
+
     @doc """
-    Constructs a `google.protobuf.FieldMask` map from a list of paths (strings or atoms).
+    Constructs a `google.protobuf.FieldMask` from a list of paths (strings or atoms).
     """
     def from_paths(paths) when is_list(paths) do
-      %{paths: Enum.map(paths, &to_string/1)}
+      %__MODULE__{paths: Enum.map(paths, &to_string/1)}
     end
 
     @doc """
@@ -407,13 +431,10 @@ defmodule SimpleGrpc.WKT do
 
   defmodule Empty do
     @moduledoc """
-    Helpers for `google.protobuf.Empty`.
+    `google.protobuf.Empty` struct.
     """
 
-    @doc """
-    Returns an empty message map.
-    """
-    def new, do: %{}
+    SimpleGrpc.Server.Message.define_bundled_struct("google.protobuf.Empty")
   end
 
   # Top-level delegation helpers for convenience
