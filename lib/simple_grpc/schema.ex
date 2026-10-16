@@ -761,12 +761,40 @@ defmodule SimpleGrpc.Schema do
     end
   end
 
-  defp link_field_descriptors(%Field{number: num, kind: :map} = field, _schema, _scope) do
+  # The value type of a map is resolved from the map's scope and recorded on the map field:
+  # an enum as its descriptor, a message as a stub carrying only its fully-qualified name
+  # (a full descriptor could refer back to the message that holds the map).
+  defp link_field_descriptors(%Field{number: num, kind: :map} = field, schema, scope) do
     tag_bytes = if is_integer(num), do: encode_tag(num, 2), else: nil
-    %{field | wire_type: 2, tag_bytes: tag_bytes, is_packable: false, default_value: %{}}
+    {sub_desc, enum_desc} = map_value_descriptors(field.val_type, schema, scope)
+
+    %{
+      field
+      | wire_type: 2,
+        tag_bytes: tag_bytes,
+        is_packable: false,
+        default_value: %{},
+        submessage_desc: sub_desc,
+        enum_desc: enum_desc
+    }
   end
 
   defp link_field_descriptors(field, _schema, _scope), do: field
+
+  defp map_value_descriptors(val_type, schema, scope) when is_binary(val_type) do
+    if field_wire_type(val_type) do
+      {nil, nil}
+    else
+      enum_desc = enum(schema, val_type)
+
+      case if(enum_desc, do: nil, else: resolve_message(schema, val_type, scope)) do
+        nil -> {nil, enum_desc}
+        message -> {%Message{name: message.name, full_name: message.full_name}, nil}
+      end
+    end
+  end
+
+  defp map_value_descriptors(_val_type, _schema, _scope), do: {nil, nil}
 
   defp resolve_enum_default(val, %SchemaEnum{
          atom_to_int: a2i,

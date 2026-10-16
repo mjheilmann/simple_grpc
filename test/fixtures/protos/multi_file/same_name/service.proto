@@ -9,4 +9,5 @@ service Swapper {
   rpc Swap(same_one.Item) returns (same_two.Item);
   rpc Wrap(same_one.Box) returns (same_two.Box);
   rpc Nest(same_one.Outer) returns (same_one.Outer);
+  rpc Register(same_one.Registry) returns (same_two.Registry);
 }

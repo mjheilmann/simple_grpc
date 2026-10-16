@@ -506,11 +506,35 @@ defmodule SimpleGrpc.Protobuf do
   def encode_map_entries(field, map, schema_ctx, msg_desc) when is_map(map) do
     Enum.map(map, fn {k, v} ->
       k_bytes = encode_single_field(1, field.key_type, k, schema_ctx, msg_desc)
-      v_bytes = encode_single_field(2, field.val_type, v, schema_ctx, msg_desc)
+      v_bytes = encode_map_value(field, v, schema_ctx, msg_desc)
       entry_len = IO.iodata_length(k_bytes) + IO.iodata_length(v_bytes)
       tag = field.tag_bytes || encode_tag(field.number, 2)
       [tag, encode_varint(entry_len), k_bytes, v_bytes]
     end)
+  end
+
+  # A map's message value is named by `submessage_desc` (a stub that carries only the
+  # name: the value type may refer back to the message holding the map) and its enum value
+  # by `enum_desc`, so a codec can encode and decode entries without resolving the value's
+  # type by a name that is relative to the map's scope. The compiled codec passes only
+  # itself as the schema context.
+  defp encode_map_value(
+         %Field{submessage_desc: %Message{full_name: name}},
+         v,
+         schema_ctx,
+         _msg_desc
+       )
+       when is_binary(name) and (is_map(v) or is_list(v)) do
+    payload = encode!(name, v, schema_ctx)
+    [encode_tag(2, 2), encode_varint(byte_size(payload)), payload]
+  end
+
+  defp encode_map_value(%Field{enum_desc: %Schema.Enum{} = enum_desc}, v, _schema_ctx, _msg_desc) do
+    [encode_tag(2, 0), encode_varint(resolve_enum_value_to_integer(v, enum_desc))]
+  end
+
+  defp encode_map_value(field, v, schema_ctx, msg_desc) do
+    encode_single_field(2, field.val_type, v, schema_ctx, msg_desc)
   end
 
   @doc false
@@ -582,6 +606,14 @@ defmodule SimpleGrpc.Protobuf do
       tag = encode_tag(1, 2)
       [tag, encode_varint(entry_len), k_bytes, v_bytes]
     end)
+  end
+
+  defp encode_length_delimited_payload(type, value, %Schema{compiled_module: mod})
+       when not is_nil(mod) and is_binary(type) do
+    case mod.encode(type, value) do
+      :error -> throw({:error, "Cannot resolve nested message #{inspect(type)}"})
+      iodata -> iodata
+    end
   end
 
   defp encode_length_delimited_payload(type, value, schema_ctx) do
@@ -758,28 +790,55 @@ defmodule SimpleGrpc.Protobuf do
     end
   end
 
+  # An entry without a value means the value type's default.
+  defp map_value_type(%Field{submessage_desc: %Message{full_name: name}}) when is_binary(name),
+    do: name
+
+  defp map_value_type(%Field{val_type: val_type}), do: val_type
+
+  defp map_value_default(
+         %Field{submessage_desc: %Message{full_name: name}},
+         schema_ctx,
+         _entry_desc
+       )
+       when is_binary(name),
+       do: decode!(name, <<>>, schema_ctx)
+
+  defp map_value_default(%Field{enum_desc: %Schema.Enum{} = enum_desc}, _schema_ctx, _entry_desc),
+    do: enum_desc.zero_atom || 0
+
+  defp map_value_default(field, schema_ctx, entry_desc),
+    do: default_scalar_value(field.val_type, schema_ctx, entry_desc)
+
   defp decode_field_value(binary, 2, %Field{kind: :map} = field, schema_ctx, _msg_desc) do
     {len, rest} = decode_varint(binary)
     <<map_entry_bytes::binary-size(^len), remaining::binary>> = rest
 
     # Map entry is a sub-message with field 1 (key) and field 2 (value)
+    key_field = %Field{name: :key, number: 1, type: field.key_type, kind: :field}
+
+    value_field = %Field{
+      name: :value,
+      number: 2,
+      type: map_value_type(field),
+      kind: :field,
+      enum_desc: field.enum_desc
+    }
+
     entry_desc = %Message{
       name: "MapEntry",
-      fields: [
-        %Field{name: :key, number: 1, type: field.key_type, kind: :field},
-        %Field{name: :value, number: 2, type: field.val_type, kind: :field}
-      ],
-      fields_by_number: %{
-        1 => %Field{name: :key, number: 1, type: field.key_type, kind: :field},
-        2 => %Field{name: :value, number: 2, type: field.val_type, kind: :field}
-      }
+      fields: [key_field, value_field],
+      fields_by_number: %{1 => key_field, 2 => value_field}
     }
 
     decoded_entry = decode_wire_fields(map_entry_bytes, entry_desc, schema_ctx, %{})
     k = Map.get(decoded_entry, :key, default_scalar_value(field.key_type, schema_ctx, entry_desc))
 
     v =
-      Map.get(decoded_entry, :value, default_scalar_value(field.val_type, schema_ctx, entry_desc))
+      case Map.fetch(decoded_entry, :value) do
+        {:ok, value} -> value
+        :error -> map_value_default(field, schema_ctx, entry_desc)
+      end
 
     {{k, v}, remaining}
   end
@@ -1155,6 +1214,17 @@ defmodule SimpleGrpc.Protobuf do
     {len, rest} = decode_varint(binary)
     <<bytes::binary-size(^len), remaining::binary>> = rest
     {bytes, remaining}
+  end
+
+  defp decode_scalar_or_message(binary, 2, type, %Schema{compiled_module: mod}, _msg_desc)
+       when not is_nil(mod) and is_binary(type) do
+    {len, rest} = decode_varint(binary)
+    <<sub_bytes::binary-size(^len), remaining::binary>> = rest
+
+    case mod.decode(type, sub_bytes) do
+      :error -> throw({:error, "Cannot resolve nested message #{inspect(type)}"})
+      sub_decoded when is_map(sub_decoded) -> {sub_decoded, remaining}
+    end
   end
 
   defp decode_scalar_or_message(binary, 2, type, schema_ctx, _msg_desc) do

@@ -263,6 +263,8 @@ defmodule SimpleGrpc.Compiler do
   # The name the compiled codec dispatches a submessage by: its fully-qualified name, which
   # is unique in the schema (a field's type as written can be relative, and its short name
   # ambiguous between packages).
+  defp sub_message_name(%Field{kind: :map}, _schema), do: nil
+
   defp sub_message_name(%Field{submessage_desc: %Message{full_name: full_name}}, schema)
        when is_binary(full_name) do
     if Map.has_key?(schema.messages, full_name), do: full_name
@@ -803,7 +805,11 @@ defmodule SimpleGrpc.Compiler do
           quote do
             defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
               {{k, v}, rest2} =
-                SimpleGrpc.Protobuf.decode_map_entry(rest1, unquote(Macro.escape(field)))
+                SimpleGrpc.Protobuf.decode_map_entry(
+                  rest1,
+                  unquote(Macro.escape(field)),
+                  %SimpleGrpc.Schema{compiled_module: __MODULE__}
+                )
 
               curr_map = Map.get(acc, unquote(field_name), %{})
               unquote(loop_fn)(rest2, %{acc | unquote(field_name) => Map.put(curr_map, k, v)})
@@ -931,10 +937,20 @@ defmodule SimpleGrpc.Compiler do
     quote do
       case data do
         %{unquote(name_atom) => map} when is_map(map) and map_size(map) > 0 ->
-          SimpleGrpc.Protobuf.encode_map_entries(unquote(Macro.escape(field)), map, nil, nil)
+          SimpleGrpc.Protobuf.encode_map_entries(
+            unquote(Macro.escape(field)),
+            map,
+            %SimpleGrpc.Schema{compiled_module: __MODULE__},
+            nil
+          )
 
         %{unquote(name_str) => map} when is_map(map) and map_size(map) > 0 ->
-          SimpleGrpc.Protobuf.encode_map_entries(unquote(Macro.escape(field)), map, nil, nil)
+          SimpleGrpc.Protobuf.encode_map_entries(
+            unquote(Macro.escape(field)),
+            map,
+            %SimpleGrpc.Schema{compiled_module: __MODULE__},
+            nil
+          )
 
         _ ->
           []
