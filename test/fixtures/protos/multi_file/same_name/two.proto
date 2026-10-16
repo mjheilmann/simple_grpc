@@ -5,3 +5,8 @@ package same_two;
 message Item {
   string b = 1;
 }
+
+message Box {
+  Item item = 1;
+  repeated Item items = 2;
+}

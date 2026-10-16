@@ -12,6 +12,7 @@ defmodule SimpleGrpc.Server.Messages do
   # (other services' messages, a glob's leftovers) is ignored, so it can neither bloat the
   # server nor trigger module name collisions.
 
+  alias SimpleGrpc.Schema
   alias SimpleGrpc.Schema.Field
   alias SimpleGrpc.Schema.WellKnownTypes
   alias SimpleGrpc.Server.Message
@@ -200,17 +201,7 @@ defmodule SimpleGrpc.Server.Messages do
 
   # Protobuf scoping: a relative name is looked up from the innermost enclosing scope (a
   # message or the package) outwards; a leading dot means fully qualified.
-  defp candidates("." <> fully_qualified, _package), do: [fully_qualified]
-
-  defp candidates(type, package) do
-    segments = String.split(package, ".", trim: true)
-
-    scopes =
-      for count <- length(segments)..1//-1,
-          do: segments |> Enum.take(count) |> Enum.join(".")
-
-    Enum.map(scopes, &"#{&1}.#{type}") ++ [type]
-  end
+  defp candidates(type, scope), do: Schema.scope_candidates(type, scope)
 
   defp check_collisions!(defs, env) do
     defs

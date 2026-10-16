@@ -7,4 +7,6 @@ import "multi_file/same_name/two.proto";
 
 service Swapper {
   rpc Swap(same_one.Item) returns (same_two.Item);
+  rpc Wrap(same_one.Box) returns (same_two.Box);
+  rpc Nest(same_one.Outer) returns (same_one.Outer);
 }

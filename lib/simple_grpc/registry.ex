@@ -74,8 +74,8 @@ defmodule SimpleGrpc.Registry do
 
   defp generate_route(schema, rpc, handlers, service) do
     with {:ok, handler} <- resolve_rpc_handler(handlers, rpc.name) do
-      input_msg = Schema.message(schema, rpc.input)
-      output_msg = Schema.message(schema, rpc.output)
+      input_msg = Schema.resolve_message(schema, rpc.input, service.package)
+      output_msg = Schema.resolve_message(schema, rpc.output, service.package)
 
       {:ok,
        %{

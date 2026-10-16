@@ -449,7 +449,7 @@ defmodule SimpleGrpc.Schema do
                   |> Map.put(:oneof_siblings, siblings)
                   |> Map.put(:features, field_features)
                   |> apply_features_to_field(schema.syntax)
-                  |> link_field_descriptors(schema)
+                  |> link_field_descriptors(schema, msg.full_name)
                 end)
 
               %{oneof_f | fields: linked_sub, features: msg_features}
@@ -460,7 +460,7 @@ defmodule SimpleGrpc.Schema do
               f
               |> Map.put(:features, field_features)
               |> apply_features_to_field(schema.syntax)
-              |> link_field_descriptors(schema)
+              |> link_field_descriptors(schema, msg.full_name)
           end)
 
         fbn =
@@ -644,11 +644,11 @@ defmodule SimpleGrpc.Schema do
 
   defp apply_features_to_field(f, _syntax), do: f
 
-  defp link_field_descriptors(%Field{type: type, number: num} = field, schema)
+  defp link_field_descriptors(%Field{type: type, number: num} = field, schema, scope)
        when is_binary(type) do
     case field_wire_type(type) do
       nil ->
-        sub_desc = message(schema, type)
+        sub_desc = resolve_message(schema, type, scope)
         enum_desc = enum(schema, type)
 
         wire_type =
@@ -761,12 +761,12 @@ defmodule SimpleGrpc.Schema do
     end
   end
 
-  defp link_field_descriptors(%Field{number: num, kind: :map} = field, _schema) do
+  defp link_field_descriptors(%Field{number: num, kind: :map} = field, _schema, _scope) do
     tag_bytes = if is_integer(num), do: encode_tag(num, 2), else: nil
     %{field | wire_type: 2, tag_bytes: tag_bytes, is_packable: false, default_value: %{}}
   end
 
-  defp link_field_descriptors(field, _schema), do: field
+  defp link_field_descriptors(field, _schema, _scope), do: field
 
   defp resolve_enum_default(val, %SchemaEnum{
          atom_to_int: a2i,
@@ -860,6 +860,41 @@ defmodule SimpleGrpc.Schema do
              String.ends_with?(name_str, ".#{m.name}"),
            do: m
       end)
+  end
+
+  @doc """
+  Finds the message a type name refers to when it is written inside `scope` (the
+  fully-qualified name of the enclosing message, or the package for an rpc).
+
+  A relative name is looked up from the innermost scope outwards, like `protoc`: inside
+  `pkg.Outer`, `Item` means `pkg.Outer.Item`, then `pkg.Item`, then `Item`. A name with a
+  leading dot is fully qualified. Names that match none of those fall back to `message/2`.
+  """
+  def resolve_message(%__MODULE__{messages: messages} = schema, type, scope) do
+    type = to_string(type)
+
+    type
+    |> scope_candidates(scope)
+    |> Enum.find_value(fn candidate ->
+      case Map.get(messages, candidate) do
+        %Message{full_name: ^candidate} = message -> message
+        _ -> nil
+      end
+    end) || message(schema, type)
+  end
+
+  @doc false
+  # The fully-qualified names `type` can mean in `scope`, most specific first.
+  def scope_candidates("." <> fully_qualified, _scope), do: [fully_qualified]
+
+  def scope_candidates(type, scope) do
+    segments = String.split(scope || "", ".", trim: true)
+
+    scopes =
+      for count <- length(segments)..1//-1,
+          do: segments |> Enum.take(count) |> Enum.join(".")
+
+    Enum.map(scopes, &"#{&1}.#{type}") ++ [type]
   end
 
   @doc """
