@@ -28,11 +28,18 @@ defmodule SimpleGrpc.Compiler do
   def compile_schema(%Schema{} = schema) do
     module_name = generate_module_name(schema)
 
-    # Generate AST for module
-    module_ast = generate_module_ast(module_name, schema)
+    # The name identifies the schema and this compiler, so a module that is already loaded
+    # (or on the code path, from an earlier build) is exactly the codec we would generate.
+    # Processes compiling the same schema at once (parallel compilation, concurrent
+    # tests) take turns; the second finds the module loaded.
+    :global.trans({{__MODULE__, module_name}, self()}, fn ->
+      if not Code.ensure_loaded?(module_name) do
+        module_ast = generate_module_ast(module_name, schema)
 
-    # Compile into BEAM VM
-    [{^module_name, _binary}] = Code.compile_quoted(module_ast)
+        # Compile into BEAM VM
+        [{^module_name, _binary}] = Code.compile_quoted(module_ast)
+      end
+    end)
 
     %{schema | compiled_module: module_name}
   catch
@@ -47,15 +54,22 @@ defmodule SimpleGrpc.Compiler do
       schema
   end
 
-  defp generate_module_name(%Schema{package: package}) do
-    uniq = System.unique_integer([:positive])
+  # Content-addressed: a counter restarts in every VM, so two builds (or an incremental
+  # recompile of one server next to the persisted codec of another) could pick the same
+  # name for different schemas and silently replace a codec that is still in use.
+  defp generate_module_name(%Schema{package: package} = schema) do
+    digest =
+      {__MODULE__.module_info(:md5), %{schema | compiled_module: nil}}
+      |> :erlang.term_to_binary([:deterministic])
+      |> :erlang.md5()
+      |> Base.encode16(case: :lower)
 
     pkg_part =
       if package && package != "",
         do: Macro.camelize(String.replace(package, ".", "_")),
         else: "Root"
 
-    Module.concat([SimpleGrpc.Compiled, :"#{pkg_part}_#{uniq}"])
+    Module.concat([SimpleGrpc.Compiled, :"#{pkg_part}_#{digest}"])
   end
 
   defp generate_module_ast(module_name, %Schema{messages: messages} = schema) do
