@@ -18,7 +18,8 @@ defmodule SimpleGrpc.Schema do
     enums: %{},
     options: %{},
     imports: [],
-    files: []
+    files: [],
+    struct_modules: %{}
   ]
 
   @type t :: %__MODULE__{
@@ -31,7 +32,8 @@ defmodule SimpleGrpc.Schema do
           enums: %{String.t() => SchemaEnum.t()},
           options: map(),
           imports: list(String.t()),
-          files: list(String.t())
+          files: list(String.t()),
+          struct_modules: %{String.t() => module()}
         }
 
   @doc """
@@ -171,7 +173,8 @@ defmodule SimpleGrpc.Schema do
       enums: Map.merge(s1.enums, s2.enums),
       options: Map.merge(s1.options, s2.options),
       imports: Enum.uniq(s1.imports ++ s2.imports),
-      files: Enum.uniq(s1.files ++ s2.files)
+      files: Enum.uniq(s1.files ++ s2.files),
+      struct_modules: Map.merge(s1.struct_modules, s2.struct_modules)
     }
     |> finalize_schema()
   end
@@ -413,8 +416,15 @@ defmodule SimpleGrpc.Schema do
 
   @doc """
   Links message submessage_desc and enum_desc on field descriptors and builds fast default_map.
+
+  Messages whose fully-qualified name is in `struct_modules` decode into that struct (see
+  `SimpleGrpc.Protobuf.decode/3`): their `default_map` is the struct and they carry the module
+  as `struct_module`. All other messages decode into plain maps.
   """
-  def finalize_schema(%__MODULE__{messages: messages} = schema) do
+  def finalize_schema(%__MODULE__{} = schema) do
+    schema = assign_struct_modules(schema)
+    %__MODULE__{messages: messages} = schema
+
     file_features =
       Field.extract_features(
         schema.options,
@@ -494,6 +504,7 @@ defmodule SimpleGrpc.Schema do
                 end
             end
           end)
+          |> struct_defaults(msg.struct_module)
 
         repeated_fields =
           linked_fields
@@ -521,6 +532,27 @@ defmodule SimpleGrpc.Schema do
 
     finalized = %{schema | messages: linked_messages, features: file_features}
     SimpleGrpc.Compiler.compile_schema(finalized)
+  end
+
+  # Marks each message that has a struct module. Done before linking so that the descriptors
+  # linked into fields carry the module too.
+  defp assign_struct_modules(%__MODULE__{struct_modules: modules} = schema)
+       when map_size(modules) == 0,
+       do: schema
+
+  defp assign_struct_modules(%__MODULE__{struct_modules: modules, messages: messages} = schema) do
+    messages =
+      Map.new(messages, fn {name, msg} ->
+        {name, %{msg | struct_module: Map.get(modules, msg.full_name)}}
+      end)
+
+    %{schema | messages: messages}
+  end
+
+  defp struct_defaults(default_map, nil), do: default_map
+
+  defp struct_defaults(default_map, module) do
+    Map.merge(default_map, %{__struct__: module, __unknown_fields__: []})
   end
 
   def default_features_for_syntax(syntax, _edition) do
