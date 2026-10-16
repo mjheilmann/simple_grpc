@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package copies;
+
+import "google/protobuf/timestamp.proto";
+
+service Copier {
+  rpc Copy(Copied) returns (Copied);
+}
+
+message Copied {
+  google.protobuf.Timestamp at = 1;
+}

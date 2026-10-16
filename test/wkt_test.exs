@@ -116,7 +116,7 @@ defmodule SimpleGrpc.WKTTest do
 
   describe "Empty helper" do
     test "creates empty map" do
-      assert WKT.Empty.new() == %{}
+      assert %WKT.Empty{} = WKT.Empty.new()
     end
   end
 end

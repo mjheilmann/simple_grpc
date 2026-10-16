@@ -1,0 +1,15 @@
+// A vendored copy of Google's timestamp.proto: same definition, different formatting.
+syntax = "proto3";
+
+package google.protobuf;
+
+option java_package = "com.google.protobuf";
+
+// A point in time.
+message Timestamp {
+  // Seconds since the epoch.
+  int64 seconds = 1;
+
+  // Fractions of a second.
+  int32 nanos = 2;
+}

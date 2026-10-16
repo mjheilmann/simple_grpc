@@ -64,7 +64,12 @@ Each server module generates a struct for every message its service can reach (t
 input and output types and, transitively, every message type their fields mention),
 namespaced under the module and qualified by proto package. Other messages in the listed
 files, such as another service's, get no struct and cannot cause a name collision.
-Handlers receive these structs, with nested messages as structs too. Fields the schema
+Handlers receive these structs, with nested messages as structs too. The well-known types
+`Timestamp`, `Duration`, `FieldMask` and `Empty` are the exception to per-server identity:
+they are shared structs owned by the library (`SimpleGrpc.WKT.Timestamp` and so on, with
+conversion helpers), because Google fixes their definitions. Other well-known types (`Any`,
+`Struct`, `Value`, the wrappers) stay plain maps. A listed copy of a bundled `.proto` is
+dropped if its definition matches and is a compile error if it differs. Fields the schema
 does not know are kept in `__unknown_fields__` and written back when the struct is
 encoded. Responses may be structs, maps, or keyword lists; the encoder checks them against
 the schema.
@@ -132,8 +137,8 @@ For client and bidirectional streaming, `request` is a lazy stream of decoded me
 | Concept | Today | Target |
 | :--- | :--- | :--- |
 | Explicit `files:` list, import validation | Implemented: `files:` list (any compile-time expression, glob entries supported), imports and duplicate names validated, `server_file:` kept as shorthand. `service:` is required when the files define several services. | Section 1 |
-| Structs in handlers | Implemented: wire decoding produces the server's structs, nested messages included (enums stay atoms, well-known types stay plain maps). Every struct has `__unknown_fields__` for fields the schema does not know | Section 3 |
-| Package-qualified, per-server structs | Implemented: every message the service reaches gets a struct under the server module, qualified by proto package (`MyApp.GreeterServer.Greeter.HelloRequest`); a name collision is a compile error. Well-known types stay plain maps | Section 3 |
+| Structs in handlers | Implemented: wire decoding produces the server's structs, nested messages included (enums stay atoms; `Timestamp`, `Duration`, `FieldMask` and `Empty` are the library's `SimpleGrpc.WKT` structs, other well-known types stay plain maps). Every struct has `__unknown_fields__` for fields the schema does not know | Section 3 |
+| Package-qualified, per-server structs | Implemented: every message the service reaches gets a struct under the server module, qualified by proto package (`MyApp.GreeterServer.Greeter.HelloRequest`); a name collision is a compile error. Well-known types are the exception (shared `SimpleGrpc.WKT` structs, or plain maps) | Section 3 |
 | Plug split | One `SimpleGrpc.Plug` with `services:`, `unmatched:`, `reflection:` and `health:` options, plus a global `SimpleGrpc.Registry` | Section 4 |
 | `SimpleGrpc.Service` behaviour | Informal `__schema__/0`, `__rpcs__/0`, `route_info/1` functions | Section 2 |
 | Reflection by logical filename | Matches schemas by file basename and package heuristics | Section 5 |
