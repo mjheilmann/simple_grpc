@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package repenum;
+
+enum Color {
+  COLOR_UNSPECIFIED = 0;
+  RED = 1;
+  BLUE = 2;
+}
+
+message Palette {
+  enum Shade {
+    SHADE_UNSPECIFIED = 0;
+    LIGHT = 1;
+    DARK = 2;
+  }
+  // packed by default in proto3
+  repeated Color colors = 1;
+  repeated Shade shades = 2;
+  // explicitly not packed
+  repeated Color loose = 3 [packed = false];
+  string name = 4;
+}
+
+message Gallery {
+  repeated Palette palettes = 1;
+}
+
+service Painter {
+  rpc Mix(Palette) returns (Gallery);
+}

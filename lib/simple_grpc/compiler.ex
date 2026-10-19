@@ -493,11 +493,9 @@ defmodule SimpleGrpc.Compiler do
                 <<packed_bytes::binary-size(^len), rest3::binary>> = rest2
 
                 items =
-                  SimpleGrpc.Protobuf.decode_packed_values(
+                  SimpleGrpc.Protobuf.decode_packed_enums(
                     packed_bytes,
-                    unquote(field.type),
-                    nil,
-                    nil
+                    unquote(enum_desc_escaped)
                   )
 
                 unquote(loop_fn)(rest3, %{
