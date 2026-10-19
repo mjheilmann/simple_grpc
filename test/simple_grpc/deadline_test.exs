@@ -9,6 +9,10 @@ defmodule SimpleGrpc.DeadlineTest do
       server_file: "test/fixtures/protos/streaming/streaming_service.proto",
       service: "StreamingService"
 
+    # Sequence 9001/9002 make the handler raise / throw a status instead of sleeping.
+    def unary_call(%{sequence: 9001}, _stream), do: raise("handler boom")
+    def unary_call(%{sequence: 9002}, _stream), do: throw({:error, 5, "gone"})
+
     def unary_call(req, _stream) do
       # If req.sequence contains sleep duration in milliseconds
       sleep_ms = req.sequence
@@ -98,6 +102,34 @@ defmodule SimpleGrpc.DeadlineTest do
 
       assert msg =~ "deadline exceeded"
       Client.close(conn)
+    end
+
+    # A handler failure must come back as a status whether or not the client set a deadline.
+    # With a deadline the handler runs in a linked task, which used to crash the request
+    # process and leave the client waiting for its own timeout.
+    for {label, headers} <- [{"with a deadline", [{"grpc-timeout", "5000m"}]}, {"without", []}] do
+      test "a raising handler returns INTERNAL #{label}", %{port: port} do
+        {:ok, conn} = Client.connect("127.0.0.1:#{port}", adapter: :mint)
+
+        assert {:error, 13, msg} =
+                 SlowClient.unary_call(conn, %{message: "x", sequence: 9001},
+                   headers: unquote(headers)
+                 )
+
+        assert msg =~ "handler boom"
+        Client.close(conn)
+      end
+
+      test "a handler that throws a status returns it #{label}", %{port: port} do
+        {:ok, conn} = Client.connect("127.0.0.1:#{port}", adapter: :mint)
+
+        assert {:error, 5, "gone"} =
+                 SlowClient.unary_call(conn, %{message: "x", sequence: 9002},
+                   headers: unquote(headers)
+                 )
+
+        Client.close(conn)
+      end
     end
 
     test "succeeds when handler completes within deadline", %{port: port} do
