@@ -735,6 +735,7 @@ defmodule SimpleGrpc.Compiler do
               quote do
                 defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                   {val, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
+                  val = SimpleGrpc.Protobuf.varint_to_int(unquote(t), val)
 
                   unquote(loop_fn)(rest2, %{
                     acc
@@ -748,6 +749,7 @@ defmodule SimpleGrpc.Compiler do
               quote do
                 defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                   {val, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
+                  val = SimpleGrpc.Protobuf.varint_to_int(unquote(t), val)
 
                   unquote(loop_fn)(rest2, %{
                     acc
@@ -782,6 +784,7 @@ defmodule SimpleGrpc.Compiler do
             quote do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {val, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
+                val = SimpleGrpc.Protobuf.varint_to_int(unquote(t), val)
                 unquote(loop_fn)(rest2, %{acc | unquote(field_name) => val})
               end
             end
@@ -791,6 +794,7 @@ defmodule SimpleGrpc.Compiler do
             quote do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {val, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
+                val = SimpleGrpc.Protobuf.varint_to_int(unquote(t), val)
                 unquote(loop_fn)(rest2, %{acc | unquote(field_name) => val})
               end
             end

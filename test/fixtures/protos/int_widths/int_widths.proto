@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package intwidths;
+
+message Ints {
+  int32 i32 = 1;
+  int64 i64 = 2;
+  uint32 u32 = 3;
+  uint64 u64 = 4;
+  repeated int32 packed_i32 = 5;
+  repeated int64 loose_i64 = 6 [packed = false];
+  repeated uint32 packed_u32 = 7;
+  map<int32, int64> table = 8;
+  // tag number above 15: two-byte tag, takes a different compiled path
+  int32 far_i32 = 16;
+  oneof pick {
+    int32 pick_i32 = 9;
+  }
+}
+
+service Widths {
+  rpc Echo(Ints) returns (Ints);
+}

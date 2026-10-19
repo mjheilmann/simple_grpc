@@ -1060,12 +1060,13 @@ defmodule SimpleGrpc.Protobuf do
   defp decode_field_value(binary, 0, %Field{type: t, prefix: :repeated}, _schema_ctx, _msg_desc)
        when t in ["int32", "int64", "uint32", "uint64"] do
     {val, rest} = decode_varint(binary)
-    {[val], rest}
+    {[varint_to_int(t, val)], rest}
   end
 
   defp decode_field_value(binary, 0, %Field{type: t}, _schema_ctx, _msg_desc)
        when t in ["int32", "int64", "uint32", "uint64"] do
-    decode_varint(binary)
+    {val, rest} = decode_varint(binary)
+    {varint_to_int(t, val), rest}
   end
 
   defp decode_field_value(
@@ -1117,19 +1118,23 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   defp decode_scalar_or_message(binary, 0, "int32", _schema_ctx, _msg_desc) do
-    decode_varint(binary)
+    {val, rest} = decode_varint(binary)
+    {varint_to_int("int32", val), rest}
   end
 
   defp decode_scalar_or_message(binary, 0, "int64", _schema_ctx, _msg_desc) do
-    decode_varint(binary)
+    {val, rest} = decode_varint(binary)
+    {varint_to_int("int64", val), rest}
   end
 
   defp decode_scalar_or_message(binary, 0, "uint32", _schema_ctx, _msg_desc) do
-    decode_varint(binary)
+    {val, rest} = decode_varint(binary)
+    {varint_to_int("uint32", val), rest}
   end
 
   defp decode_scalar_or_message(binary, 0, "uint64", _schema_ctx, _msg_desc) do
-    decode_varint(binary)
+    {val, rest} = decode_varint(binary)
+    {varint_to_int("uint64", val), rest}
   end
 
   defp decode_scalar_or_message(binary, 0, "bool", _schema_ctx, _msg_desc) do
@@ -1268,19 +1273,19 @@ defmodule SimpleGrpc.Protobuf do
   def decode_packed_values(<<>>, _type, _schema_ctx, _msg_desc), do: []
 
   def decode_packed_values(binary, "int32", _schema_ctx, _msg_desc) do
-    decode_packed_varints(binary)
+    decode_packed_varints(binary, "int32")
   end
 
   def decode_packed_values(binary, "int64", _schema_ctx, _msg_desc) do
-    decode_packed_varints(binary)
+    decode_packed_varints(binary, "int64")
   end
 
   def decode_packed_values(binary, "uint32", _schema_ctx, _msg_desc) do
-    decode_packed_varints(binary)
+    decode_packed_varints(binary, "uint32")
   end
 
   def decode_packed_values(binary, "uint64", _schema_ctx, _msg_desc) do
-    decode_packed_varints(binary)
+    decode_packed_varints(binary, "uint64")
   end
 
   def decode_packed_values(binary, "double", _schema_ctx, _msg_desc) do
@@ -1306,11 +1311,11 @@ defmodule SimpleGrpc.Protobuf do
     [resolve_enum_integer_to_atom(val, enum_desc) | decode_packed_enums(rest, enum_desc)]
   end
 
-  defp decode_packed_varints(<<>>), do: []
+  defp decode_packed_varints(<<>>, _type), do: []
 
-  defp decode_packed_varints(binary) do
+  defp decode_packed_varints(binary, type) do
     {val, rest} = decode_varint(binary)
-    [val | decode_packed_varints(rest)]
+    [varint_to_int(type, val) | decode_packed_varints(rest, type)]
   end
 
   defp decode_packed_doubles(<<>>), do: []
@@ -1553,6 +1558,18 @@ defmodule SimpleGrpc.Protobuf do
   def encode_varint(n) when is_integer(n) and n < 0 do
     encode_varint(n &&& 0xFFFFFFFFFFFFFFFF)
   end
+
+  @doc false
+  # A varint is an unsigned 64-bit quantity on the wire. `int32`/`int64` carry negatives as
+  # two's complement (a negative `int32` is sign-extended to ten bytes), and a value wider than
+  # the field is truncated, as the reference parsers do.
+  def varint_to_int("int32", val), do: sign_extend(val &&& 0xFFFFFFFF, 32)
+  def varint_to_int("int64", val), do: sign_extend(val &&& 0xFFFFFFFFFFFFFFFF, 64)
+  def varint_to_int("uint32", val), do: val &&& 0xFFFFFFFF
+  def varint_to_int("uint64", val), do: val &&& 0xFFFFFFFFFFFFFFFF
+
+  defp sign_extend(val, bits) when val >= 1 <<< (bits - 1), do: val - (1 <<< bits)
+  defp sign_extend(val, _bits), do: val
 
   @doc """
   Decodes varint bytes into `{integer, remaining_binary}`.
