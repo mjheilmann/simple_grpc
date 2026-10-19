@@ -59,6 +59,11 @@ defmodule SimpleGrpc.Protobuf do
   """
   def decode(message_or_mod, binary, schema_ctx \\ nil) do
     {:ok, decode!(message_or_mod, binary, schema_ctx)}
+  rescue
+    # Decoding only fails to match a `<<value::binary-size(len), rest::binary>>` pattern when the
+    # length prefix claims more bytes than the message has: malformed input, not a server bug.
+    MatchError ->
+      {:error, 3, "bad request: length prefix exceeds the available data"}
   catch
     :throw, {:error, msg} ->
       {:error, 3, "bad request: #{msg}"}
@@ -789,31 +794,52 @@ defmodule SimpleGrpc.Protobuf do
 
   defp decode_wire_fields(binary, %Message{fields_by_number: fbn} = msg_desc, schema_ctx, acc) do
     {tag, rest} = decode_varint(binary)
-    field_num = tag >>> 3
     wire_type = tag &&& 0x07
 
-    case Map.get(fbn, field_num) do
+    case Map.get(fbn, tag >>> 3) do
+      %Field{} = field_desc ->
+        if wire_type_matches?(field_desc, wire_type, schema_ctx, msg_desc) do
+          {field_value, remaining} =
+            decode_field_value(rest, wire_type, field_desc, schema_ctx, msg_desc)
+
+          updated_acc = store_decoded_field(acc, field_desc, field_value, msg_desc)
+          decode_wire_fields(remaining, msg_desc, schema_ctx, updated_acc)
+        else
+          keep_unknown(binary, tag, rest, msg_desc, schema_ctx, acc)
+        end
+
       nil ->
-        orig_len = byte_size(binary)
-        {_skipped, remaining} = skip_wire_value(rest, wire_type)
-        consumed_len = orig_len - byte_size(remaining)
-        unknown_wire = :binary.part(binary, 0, consumed_len)
-        unknowns = Map.get(acc, :__unknown_fields__, []) ++ [unknown_wire]
-
-        decode_wire_fields(
-          remaining,
-          msg_desc,
-          schema_ctx,
-          Map.put(acc, :__unknown_fields__, unknowns)
-        )
-
-      field_desc ->
-        {field_value, remaining} =
-          decode_field_value(rest, wire_type, field_desc, schema_ctx, msg_desc)
-
-        updated_acc = store_decoded_field(acc, field_desc, field_value, msg_desc)
-        decode_wire_fields(remaining, msg_desc, schema_ctx, updated_acc)
+        keep_unknown(binary, tag, rest, msg_desc, schema_ctx, acc)
     end
+  end
+
+  defp keep_unknown(binary, tag, rest, msg_desc, schema_ctx, acc) do
+    {:ok, remaining} = skip_field(tag, rest)
+    unknown_wire = :binary.part(binary, 0, byte_size(binary) - byte_size(remaining))
+    unknowns = Map.get(acc, :__unknown_fields__, []) ++ [unknown_wire]
+
+    decode_wire_fields(
+      remaining,
+      msg_desc,
+      schema_ctx,
+      Map.put(acc, :__unknown_fields__, unknowns)
+    )
+  end
+
+  # A known field arriving with a wire type it cannot have is kept as an unknown field, as the
+  # reference parsers do. Repeated scalars may arrive packed (wire type 2) or one per tag.
+  defp wire_type_matches?(%Field{kind: :map}, wire_type, _schema_ctx, _msg_desc),
+    do: wire_type == 2
+
+  defp wire_type_matches?(%Field{submessage_desc: %Message{}}, wire_type, _schema_ctx, _msg_desc),
+    do: wire_type == 2
+
+  defp wire_type_matches?(%Field{type: type} = field, wire_type, schema_ctx, msg_desc) do
+    expected = if field.enum_desc, do: 0, else: wire_type_for(type, schema_ctx, msg_desc)
+
+    wire_type == expected or
+      (wire_type == 2 and field.prefix == :repeated and expected != 2 and
+         is_packable_type?(type, schema_ctx, msg_desc))
   end
 
   # An entry without a value means the value type's default.
@@ -902,19 +928,19 @@ defmodule SimpleGrpc.Protobuf do
          binary,
          2,
          %Field{prefix: :repeated, type: "string"},
-         _schema_ctx,
+         schema_ctx,
          _msg_desc
        ) do
     {len, rest} = decode_varint(binary)
     <<str::binary-size(^len), remaining::binary>> = rest
-    {[str], remaining}
+    {[valid_string!(str, schema_ctx)], remaining}
   end
 
   # Non-repeated String
-  defp decode_field_value(binary, 2, %Field{type: "string"}, _schema_ctx, _msg_desc) do
+  defp decode_field_value(binary, 2, %Field{type: "string"}, schema_ctx, _msg_desc) do
     {len, rest} = decode_varint(binary)
     <<str::binary-size(^len), remaining::binary>> = rest
-    {str, remaining}
+    {valid_string!(str, schema_ctx), remaining}
   end
 
   # Repeated Bytes
@@ -1235,10 +1261,10 @@ defmodule SimpleGrpc.Protobuf do
        ),
        do: {val, rest}
 
-  defp decode_scalar_or_message(binary, 2, "string", _schema_ctx, _msg_desc) do
+  defp decode_scalar_or_message(binary, 2, "string", schema_ctx, _msg_desc) do
     {len, rest} = decode_varint(binary)
     <<str::binary-size(^len), remaining::binary>> = rest
-    {str, remaining}
+    {valid_string!(str, schema_ctx), remaining}
   end
 
   defp decode_scalar_or_message(binary, 2, "bytes", _schema_ctx, _msg_desc) do
@@ -1379,6 +1405,15 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   @doc false
+  # Skips the value of a field we do not decode (unknown number, or a known field sent with a
+  # wire type it cannot have). Malformed input (field number 0, wire types 4/6/7 where a value
+  # is expected, a truncated value) throws like any other decode error.
+  def skip_field(tag, binary) do
+    if tag >>> 3 == 0, do: throw({:error, "field number 0 is invalid"})
+    skip_wire_value(binary, tag &&& 0x07)
+  end
+
+  @doc false
   def skip_wire_value(binary, 0) do
     {_val, rest} = decode_varint(binary)
     {:ok, rest}
@@ -1388,8 +1423,11 @@ defmodule SimpleGrpc.Protobuf do
 
   def skip_wire_value(binary, 2) do
     {len, rest} = decode_varint(binary)
-    <<_::binary-size(^len), remaining::binary>> = rest
-    {:ok, remaining}
+
+    case rest do
+      <<_::binary-size(^len), remaining::binary>> -> {:ok, remaining}
+      _ -> throw({:error, "length prefix exceeds the available data"})
+    end
   end
 
   def skip_wire_value(binary, 3) do
@@ -1397,18 +1435,23 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   def skip_wire_value(<<_::32, rest::binary>>, 5), do: {:ok, rest}
-  def skip_wire_value(_binary, _wire_type), do: {:error, :invalid_wire_type}
 
+  def skip_wire_value(_binary, wire_type) when wire_type in [1, 5],
+    do: throw({:error, "truncated fixed-width value"})
+
+  def skip_wire_value(_binary, wire_type),
+    do: throw({:error, "invalid wire type #{wire_type}"})
+
+  # Skips up to the matching end-group tag, nested groups included.
   defp skip_group(binary) do
     {tag, rest} = decode_varint(binary)
-    wire_type = tag &&& 0x07
 
-    case wire_type do
+    case tag &&& 0x07 do
       4 ->
         {:ok, rest}
 
-      _ ->
-        {:ok, remaining} = skip_wire_value(rest, wire_type)
+      _wire_type ->
+        {:ok, remaining} = skip_field(tag, rest)
         skip_group(remaining)
     end
   end
@@ -1571,6 +1614,15 @@ defmodule SimpleGrpc.Protobuf do
   defp sign_extend(val, bits) when val >= 1 <<< (bits - 1), do: val - (1 <<< bits)
   defp sign_extend(val, _bits), do: val
 
+  @doc false
+  # proto3 (and editions) strings must be valid UTF-8; proto2 parsers only warn, so a schema
+  # known to be proto2 is not checked.
+  def valid_string!(str, %Schema{syntax: :proto2}), do: str
+
+  def valid_string!(str, _schema_ctx) do
+    if String.valid?(str), do: str, else: throw({:error, "string field is not valid UTF-8"})
+  end
+
   @doc """
   Decodes varint bytes into `{integer, remaining_binary}`.
   """
@@ -1592,6 +1644,11 @@ defmodule SimpleGrpc.Protobuf do
 
   def decode_varint(<<0::1, val::7, rest::binary>>, acc, shift) do
     {acc ||| val <<< shift, rest}
+  end
+
+  # A varint is at most ten bytes (64 bits plus the continuation bits).
+  def decode_varint(<<1::1, _::7, _::binary>>, _acc, 63) do
+    throw({:error, "varint longer than 10 bytes"})
   end
 
   def decode_varint(<<1::1, val::7, rest::binary>>, acc, shift) do

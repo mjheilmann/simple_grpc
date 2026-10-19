@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package strict;
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+  A = 1;
+}
+
+message Inner {
+  string note = 1;
+}
+
+message Doc {
+  string title = 1;
+  int32 count = 2;
+  Inner inner = 3;
+  Kind kind = 4;
+  repeated string tags = 5;
+  repeated int32 nums = 6;
+  map<string, string> labels = 7;
+  bytes blob = 8;
+  uint64 big = 9;
+  // tag number above 15: two-byte tag
+  string far_title = 20;
+}
+
+service Docs {
+  rpc Echo(Doc) returns (Doc);
+}

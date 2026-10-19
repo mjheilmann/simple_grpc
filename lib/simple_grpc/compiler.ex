@@ -212,18 +212,11 @@ defmodule SimpleGrpc.Compiler do
         defp unquote(decode_loop_fn)(binary, acc) when is_binary(binary) do
           orig_len = byte_size(binary)
           {tag, rest1} = SimpleGrpc.Protobuf.decode_varint(binary)
-          wire_type = tag &&& 7
-
-          case SimpleGrpc.Protobuf.skip_wire_value(rest1, wire_type) do
-            {:ok, rest2} ->
-              consumed_len = orig_len - byte_size(rest2)
-              unknown_wire = :binary.part(binary, 0, consumed_len)
-              unknowns = Map.get(acc, :__unknown_fields__, []) ++ [unknown_wire]
-              unquote(decode_loop_fn)(rest2, Map.put(acc, :__unknown_fields__, unknowns))
-
-            {:error, _} ->
-              acc
-          end
+          {:ok, rest2} = SimpleGrpc.Protobuf.skip_field(tag, rest1)
+          consumed_len = orig_len - byte_size(rest2)
+          unknown_wire = :binary.part(binary, 0, consumed_len)
+          unknowns = Map.get(acc, :__unknown_fields__, []) ++ [unknown_wire]
+          unquote(decode_loop_fn)(rest2, Map.put(acc, :__unknown_fields__, unknowns))
         end
       end
     ]
@@ -384,7 +377,9 @@ defmodule SimpleGrpc.Compiler do
                    ) do
                 unquote(loop_fn)(rest, %{
                   acc
-                  | unquote(field_name) => [str | acc.unquote(field_name)]
+                  | unquote(field_name) => [
+                      unquote(utf8_checked(quote(do: str), schema)) | acc.unquote(field_name)
+                    ]
                 })
               end
             end,
@@ -395,7 +390,9 @@ defmodule SimpleGrpc.Compiler do
 
                 unquote(loop_fn)(rest3, %{
                   acc
-                  | unquote(field_name) => [str | acc.unquote(field_name)]
+                  | unquote(field_name) => [
+                      unquote(utf8_checked(quote(do: str), schema)) | acc.unquote(field_name)
+                    ]
                 })
               end
             end
@@ -409,7 +406,9 @@ defmodule SimpleGrpc.Compiler do
 
                 unquote(loop_fn)(rest3, %{
                   acc
-                  | unquote(field_name) => [str | acc.unquote(field_name)]
+                  | unquote(field_name) => [
+                      unquote(utf8_checked(quote(do: str), schema)) | acc.unquote(field_name)
+                    ]
                 })
               end
             end
@@ -426,14 +425,21 @@ defmodule SimpleGrpc.Compiler do
                        rest::binary>>,
                      acc
                    ) do
-                unquote(loop_fn)(rest, %{acc | unquote(field_name) => str})
+                unquote(loop_fn)(rest, %{
+                  acc
+                  | unquote(field_name) => unquote(utf8_checked(quote(do: str), schema))
+                })
               end
             end,
             quote do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {len, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
                 <<str::binary-size(^len), rest3::binary>> = rest2
-                unquote(loop_fn)(rest3, %{acc | unquote(field_name) => str})
+
+                unquote(loop_fn)(rest3, %{
+                  acc
+                  | unquote(field_name) => unquote(utf8_checked(quote(do: str), schema))
+                })
               end
             end
           ]
@@ -443,7 +449,11 @@ defmodule SimpleGrpc.Compiler do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {len, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
                 <<str::binary-size(^len), rest3::binary>> = rest2
-                unquote(loop_fn)(rest3, %{acc | unquote(field_name) => str})
+
+                unquote(loop_fn)(rest3, %{
+                  acc
+                  | unquote(field_name) => unquote(utf8_checked(quote(do: str), schema))
+                })
               end
             end
           ]
@@ -825,6 +835,13 @@ defmodule SimpleGrpc.Compiler do
   end
 
   defp generate_field_decode_clauses(_loop_fn, _field, _schema), do: []
+
+  # proto3 strings must be valid UTF-8 (see `SimpleGrpc.Protobuf.valid_string!/2`).
+  defp utf8_checked(str_ast, %{syntax: :proto2}), do: str_ast
+
+  defp utf8_checked(str_ast, _schema) do
+    quote do: SimpleGrpc.Protobuf.valid_string!(unquote(str_ast), nil)
+  end
 
   defp generate_field_encode_expr(%Field{kind: :oneof, fields: subfields}, schema) do
     branches =
