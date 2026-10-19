@@ -329,7 +329,7 @@ defmodule SimpleGrpc.Schema do
       |> Map.new()
 
     nested_enums_from_messages =
-      Enum.flat_map(top_messages, &flatten_nested_enums/1)
+      Enum.flat_map(top_messages, &flatten_nested_enums(&1, &1.full_name || &1.name))
 
     top_enums =
       ast
@@ -340,6 +340,7 @@ defmodule SimpleGrpc.Schema do
       |> Enum.flat_map(fn e_ast ->
         enum = SchemaEnum.parse(e_ast)
         full_name = if package && package != "", do: "#{package}.#{enum.name}", else: enum.name
+        enum = %{enum | full_name: full_name}
 
         if full_name != enum.name do
           [{enum.name, enum}, {full_name, enum}]
@@ -648,8 +649,7 @@ defmodule SimpleGrpc.Schema do
        when is_binary(type) do
     case field_wire_type(type) do
       nil ->
-        sub_desc = resolve_message(schema, type, scope)
-        enum_desc = enum(schema, type)
+        {sub_desc, enum_desc} = resolve_field_type(schema, type, scope)
 
         wire_type =
           cond do
@@ -781,15 +781,25 @@ defmodule SimpleGrpc.Schema do
 
   defp link_field_descriptors(field, _schema, _scope), do: field
 
+  # Resolves a non-scalar field type written in `scope` to `{message, nil}` or `{nil, enum}`.
+  # An exact match from the declaring scope wins; only a name nothing matches exactly falls
+  # back to the fuzzy lookups.
+  defp resolve_field_type(schema, type, scope) do
+    cond do
+      enum = exact_enum(schema, type, scope) -> {nil, enum}
+      message = exact_message(schema, type, scope) -> {message, nil}
+      enum = enum(schema, type) -> {nil, enum}
+      true -> {resolve_message(schema, type, scope), nil}
+    end
+  end
+
   defp map_value_descriptors(val_type, schema, scope) when is_binary(val_type) do
     if field_wire_type(val_type) do
       {nil, nil}
     else
-      enum_desc = enum(schema, val_type)
-
-      case if(enum_desc, do: nil, else: resolve_message(schema, val_type, scope)) do
-        nil -> {nil, enum_desc}
-        message -> {%Message{name: message.name, full_name: message.full_name}, nil}
+      case resolve_field_type(schema, val_type, scope) do
+        {nil, enum_desc} -> {nil, enum_desc}
+        {message, nil} -> {%Message{name: message.name, full_name: message.full_name}, nil}
       end
     end
   end
@@ -926,11 +936,48 @@ defmodule SimpleGrpc.Schema do
   end
 
   @doc """
+  Resolves an enum type name written inside `scope` (the fully-qualified name of the message
+  or package it appears in), the way `resolve_message/3` does for messages.
+
+  Candidates are tried from the innermost scope outwards, so `Type` written inside
+  `pkg.Program` means `pkg.Program.Type`, then `pkg.Type`, then `Type`. A name with a leading
+  dot is fully qualified. Names that match none of those fall back to the fuzzy `enum/2`.
+  """
+  def resolve_enum(%__MODULE__{} = schema, type, scope) do
+    exact_enum(schema, type, scope) || enum(schema, type)
+  end
+
+  # Strict, scope-aware lookups: nil unless a definition has exactly the candidate's full name.
+  defp exact_enum(%__MODULE__{enums: enums}, type, scope) do
+    type
+    |> to_string()
+    |> scope_candidates(scope)
+    |> Enum.find_value(fn candidate ->
+      case Map.get(enums, candidate) do
+        %SchemaEnum{full_name: ^candidate} = enum -> enum
+        _ -> nil
+      end
+    end)
+  end
+
+  defp exact_message(%__MODULE__{messages: messages}, type, scope) do
+    type
+    |> to_string()
+    |> scope_candidates(scope)
+    |> Enum.find_value(fn candidate ->
+      case Map.get(messages, candidate) do
+        %Message{full_name: ^candidate} = message -> message
+        _ -> nil
+      end
+    end)
+  end
+
+  @doc """
   Finds an enum by name or full name across top-level enums, package namespaces, and nested message enums.
   """
   def enum(%__MODULE__{enums: enums, messages: messages, package: package}, name) do
     name_str = name |> to_string() |> String.trim_leading(".")
-    name_atom = if is_atom(name), do: name, else: String.to_atom(name_str)
+    name_atom = if is_atom(name), do: name, else: existing_atom(name_str)
 
     Map.get(enums, name) ||
       Map.get(enums, name_str) ||
@@ -940,7 +987,7 @@ defmodule SimpleGrpc.Schema do
       (package &&
          Map.get(
            enums,
-           String.to_atom(String.replace_prefix(name_str, "#{package}.", ""))
+           existing_atom(String.replace_prefix(name_str, "#{package}.", ""))
          )) ||
       Enum.find_value(enums, fn {_k, e} ->
         if e.name == name_str or to_string(e.name) == name_str or
@@ -955,6 +1002,14 @@ defmodule SimpleGrpc.Schema do
   end
 
   def enum(_other, _name), do: nil
+
+  # Enum maps are keyed by strings; an atom key can only match if that atom already exists, so
+  # never create atoms from a type name.
+  defp existing_atom(string) do
+    String.to_existing_atom(string)
+  rescue
+    ArgumentError -> nil
+  end
 
   defp find_nested_enum(
          %Message{name: msg_name, nested_enums: nested_enums, nested_messages: nested_messages},
@@ -1103,71 +1158,70 @@ defmodule SimpleGrpc.Schema do
   # Service Dependency Graph Traversal
   # ---------------------------------------------------------------------------
 
-  defp collect_service_dependencies(schema, %Service{rpcs: rpcs}) do
-    root_type_names =
-      Enum.flat_map(rpcs, fn {_name, rpc} ->
-        [rpc.input, rpc.output]
-      end)
+  defp collect_service_dependencies(schema, %Service{rpcs: rpcs, package: package}) do
+    roots =
+      Enum.flat_map(rpcs, fn {_name, rpc} -> [rpc.input, rpc.output] end)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
+      |> Enum.map(&{&1, package})
 
-    traverse_type_dependencies(root_type_names, schema, MapSet.new(), %{}, %{})
+    traverse_type_dependencies(roots, schema, MapSet.new(), %{}, %{})
   end
 
+  # Walks `{type, scope}` pairs: each type name is resolved from the scope it is written in, and
+  # the definitions found are visited once by their full name.
   defp traverse_type_dependencies([], _schema, _visited, acc_messages, acc_enums) do
     {Map.values(acc_messages), Map.values(acc_enums)}
   end
 
   defp traverse_type_dependencies(
-         [type_name | rest_types],
+         [{type_name, scope} | rest_types],
          schema,
          visited,
          acc_messages,
          acc_enums
        ) do
-    clean_type = type_name |> to_string() |> String.trim_leading(".")
-
-    if MapSet.member?(visited, clean_type) do
-      traverse_type_dependencies(rest_types, schema, visited, acc_messages, acc_enums)
-    else
-      visited = MapSet.put(visited, clean_type)
-
-      msg = message(schema, clean_type)
-      enum_val = enum(schema, clean_type)
-
-      cond do
-        msg != nil ->
-          acc_messages = Map.put(acc_messages, msg.full_name || msg.name, msg)
-
-          # Extract referenced types from message fields and nested structures
-          referenced = extract_referenced_types(msg)
-
-          traverse_type_dependencies(
-            rest_types ++ referenced,
-            schema,
-            visited,
-            acc_messages,
-            acc_enums
-          )
-
-        enum_val != nil ->
-          enum_name =
-            if is_struct(enum_val, SchemaEnum), do: enum_val.name, else: to_string(clean_type)
-
-          acc_enums = Map.put(acc_enums, enum_name, enum_val)
-          traverse_type_dependencies(rest_types, schema, visited, acc_messages, acc_enums)
-
-        true ->
-          traverse_type_dependencies(rest_types, schema, visited, acc_messages, acc_enums)
+    {message, enum} =
+      case resolve_field_type(schema, type_name, scope) do
+        {nil, nil} -> {nil, nil}
+        found -> found
       end
+
+    cond do
+      message != nil and not MapSet.member?(visited, message.full_name || message.name) ->
+        key = message.full_name || message.name
+        referenced = extract_referenced_types(message, message.full_name)
+
+        traverse_type_dependencies(
+          rest_types ++ referenced,
+          schema,
+          MapSet.put(visited, key),
+          Map.put(acc_messages, key, message),
+          acc_enums
+        )
+
+      enum != nil ->
+        key = enum.full_name || enum.name
+
+        traverse_type_dependencies(
+          rest_types,
+          schema,
+          MapSet.put(visited, key),
+          acc_messages,
+          Map.put(acc_enums, key, enum)
+        )
+
+      true ->
+        traverse_type_dependencies(rest_types, schema, visited, acc_messages, acc_enums)
     end
   end
 
-  defp extract_referenced_types(%Message{
-         fields: fields,
-         nested_messages: nested_messages,
-         nested_enums: _nested_enums
-       }) do
+  # The `{type, scope}` pairs a message's fields mention, nested messages included (each nested
+  # message is its own scope).
+  defp extract_referenced_types(
+         %Message{fields: fields, nested_messages: nested_messages, name: name},
+         scope
+       ) do
     field_types =
       Enum.flat_map(fields, fn
         %Field{kind: :map, key_type: k, val_type: v} -> [k, v]
@@ -1175,13 +1229,17 @@ defmodule SimpleGrpc.Schema do
         %Field{type: t} when is_binary(t) -> [t]
         _ -> []
       end)
+      |> Enum.reject(
+        &(&1 in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64 float double bool string bytes))
+      )
+      |> Enum.map(&{&1, scope})
 
-    nested_types = Enum.flat_map(nested_messages, &extract_referenced_types/1)
+    nested_types =
+      Enum.flat_map(nested_messages, fn nested ->
+        extract_referenced_types(nested, "#{scope || name}.#{nested.name}")
+      end)
 
-    (field_types ++ nested_types)
-    |> Enum.reject(
-      &(&1 in ~w(int32 int64 uint32 uint64 sint32 sint64 fixed32 fixed64 sfixed32 sfixed64 float double bool string bytes))
-    )
+    field_types ++ nested_types
   end
 
   defp flatten_message_entries(%Message{} = msg) do
@@ -1212,25 +1270,20 @@ defmodule SimpleGrpc.Schema do
     base_entries ++ nested_entries
   end
 
-  defp flatten_nested_enums(%Message{
-         nested_enums: nested_enums,
-         nested_messages: nested_messages,
-         name: msg_name,
-         full_name: full_name
-       }) do
+  # `scope` is the fully-qualified name of `msg`; nested enums are qualified by it.
+  defp flatten_nested_enums(
+         %Message{nested_enums: nested_enums, nested_messages: nested_messages, name: msg_name},
+         scope
+       ) do
     direct =
       Enum.flat_map(nested_enums, fn enum ->
-        enum_full =
-          if full_name, do: "#{full_name}.#{enum.name}", else: "#{msg_name}.#{enum.name}"
-
-        [
-          {enum.name, enum},
-          {"#{msg_name}.#{enum.name}", enum},
-          {enum_full, enum}
-        ]
+        enum = %{enum | full_name: "#{scope}.#{enum.name}"}
+        [{enum.name, enum}, {"#{msg_name}.#{enum.name}", enum}, {enum.full_name, enum}]
       end)
 
-    nested = Enum.flat_map(nested_messages, &flatten_nested_enums/1)
+    nested =
+      Enum.flat_map(nested_messages, &flatten_nested_enums(&1, "#{scope}.#{&1.name}"))
+
     direct ++ nested
   end
 end

@@ -5,6 +5,7 @@ defmodule SimpleGrpc.Schema.Enum do
 
   defstruct [
     :name,
+    :full_name,
     fields: [],
     int_to_atom: %{},
     atom_to_int: %{},
@@ -15,6 +16,7 @@ defmodule SimpleGrpc.Schema.Enum do
 
   @type t :: %__MODULE__{
           name: String.t(),
+          full_name: String.t() | nil,
           fields: list({atom(), integer()}),
           int_to_atom: map(),
           atom_to_int: map(),
