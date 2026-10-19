@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package enumother;
+
+enum Kind {
+  OTHER_UNSPECIFIED = 0;
+  OTHER_BETA = 1;
+}
+
+message Holder {
+  Kind kind = 1;
+}

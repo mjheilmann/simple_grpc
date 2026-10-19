@@ -1664,8 +1664,10 @@ defmodule SimpleGrpc.Protobuf do
   end
 
   def resolve_enum_descriptor(type_name, %Schema{} = schema, msg_desc) do
-    (msg_desc && find_in_msg_nested_enums(msg_desc, type_name)) ||
-      Schema.enum(schema, type_name)
+    scope = msg_desc && Map.get(msg_desc, :full_name)
+
+    Schema.resolve_enum(schema, type_name, scope) ||
+      (msg_desc && find_in_msg_nested_enums(msg_desc, type_name))
   end
 
   def resolve_enum_descriptor(type_name, %{enums: enums} = _map_schema, msg_desc) do

@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package enumprune;
+
+// Pruning to a service must follow each type name from where it is written: `Type` and `Item`
+// exist under both `Reached`/`Unreached` and `Outer1`/`Outer2`.
+
+message Reached {
+  enum Type {
+    R_UNKNOWN = 0;
+    R_ONE = 1;
+  }
+  Type type = 1;
+}
+
+message Unreached {
+  enum Type {
+    U_UNKNOWN = 0;
+    U_ONE = 1;
+  }
+  Type type = 1;
+}
+
+message Outer1 {
+  message Item {
+    string a = 1;
+  }
+  Item item = 1;
+}
+
+message Outer2 {
+  message Item {
+    int32 b = 1;
+  }
+  Item item = 1;
+}
+
+service Pruned {
+  rpc Get(Reached) returns (Outer1);
+}

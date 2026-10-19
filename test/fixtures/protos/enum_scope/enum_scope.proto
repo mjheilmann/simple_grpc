@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package enumscope;
+
+import "enum_scope/other.proto";
+
+// Several enums share the local name `Type` (and `Kind` exists in two packages) but
+// have different values. Each reference must resolve from where it is written.
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+  KIND_ALPHA = 1;
+}
+
+message Title {
+  enum Type {
+    UNKNOWN = 0;
+    FULL = 1;
+    REDUCED = 2;
+  }
+  Type type = 1;
+  Kind kind = 2;
+}
+
+message Program {
+  enum Type {
+    UNKNOWN = 0;
+    FEATURE_FILM = 1;
+    SERIES = 7;
+  }
+  Type prog_type = 1;
+  repeated Type extras = 2;
+  map<string, Type> by_name = 3;
+  Title.Type title_type = 4;
+  Title title = 5;
+}
+
+message Plain {
+  Kind kind = 1;
+}
+
+service Scoped {
+  rpc Get(Program) returns (Title);
+  rpc Plain(Plain) returns (Plain);
+  rpc Hold(enumother.Holder) returns (enumother.Holder);
+}
