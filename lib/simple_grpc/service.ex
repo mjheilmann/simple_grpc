@@ -31,7 +31,9 @@ defmodule SimpleGrpc.Service do
   @doc false
   # Raises `ArgumentError` unless `module` implements this behaviour.
   def validate!(module) when is_atom(module) do
-    Code.ensure_loaded(module)
+    # `ensure_compiled` (not `ensure_loaded`) so that, when a pipeline is compiled in the same
+    # project as the server it names, the compiler waits for the server module.
+    Code.ensure_compiled(module)
 
     case Enum.reject(@callbacks, fn {fun, arity} -> function_exported?(module, fun, arity) end) do
       [] ->
