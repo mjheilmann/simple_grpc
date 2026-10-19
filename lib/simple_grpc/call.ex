@@ -10,6 +10,8 @@ defmodule SimpleGrpc.Call do
 
   alias SimpleGrpc.{Dispatcher, Protobuf, Status, GrpcWeb, Framing}
 
+  @response_started :simple_grpc_response_started
+
   @doc false
   # Serves one request given the result of looking its path up (`{:ok, route}` or `:not_found`)
   # and the plug state (`:unmatched`, `:interceptors`, `:cors_opts`).
@@ -96,6 +98,7 @@ defmodule SimpleGrpc.Call do
   # Handles one request for an already-matched `route`: reads and decodes the request, runs the
   # interceptor pipeline and the handler, and writes the response (unary or streaming).
   def handle(conn, route, start_time, plug_interceptors, grpc_web_format, cors_opts) do
+    Process.delete(@response_started)
     path = conn.request_path
     timeout_header = get_req_header(conn, "grpc-timeout") |> List.first()
 
@@ -168,11 +171,27 @@ defmodule SimpleGrpc.Call do
 
         dispatch_result =
           if is_integer(deadline_ms) and deadline_ms > 0 and not route.request_stream do
-            task = Task.async(dispatch_with_pipeline)
+            # The task is linked, so an exception in it would take this request process down
+            # before any status is sent. Catch in the task and re-raise here, where the usual
+            # error-to-status mapping applies.
+            task =
+              Task.async(fn ->
+                try do
+                  {:done, dispatch_with_pipeline.()}
+                catch
+                  kind, reason -> {:caught, kind, reason, __STACKTRACE__}
+                end
+              end)
 
             case Task.yield(task, deadline_ms) || Task.shutdown(task, :brutal_kill) do
-              {:ok, res} -> res
-              nil -> throw({:error, 4, "deadline exceeded"})
+              {:ok, {:done, res}} ->
+                res
+
+              {:ok, {:caught, kind, reason, stacktrace}} ->
+                :erlang.raise(kind, reason, stacktrace)
+
+              nil ->
+                throw({:error, 4, "deadline exceeded"})
             end
           else
             dispatch_with_pipeline.()
@@ -470,7 +489,7 @@ defmodule SimpleGrpc.Call do
       case conn.adapter do
         {Bandit.Adapter,
          %Bandit.Adapter{
-           transport: %Bandit.HTTP2.Stream{connection_pid: conn_pid, stream_id: stream_id}
+           transport: %Bandit.HTTP2.Stream{}
          }} ->
           conn =
             conn
@@ -478,6 +497,8 @@ defmodule SimpleGrpc.Call do
             |> put_resp_header("grpc-accept-encoding", accept_enc_header)
             |> maybe_put_encoding_header(response_encoding)
             |> send_chunked(200)
+
+          Process.put(@response_started, true)
 
           conn =
             Enum.reduce(resp_enumerable, conn, fn item, conn_acc ->
@@ -498,9 +519,7 @@ defmodule SimpleGrpc.Call do
 
           emit_telemetry_stop(conn, path, route, nil, :stream, 0, "", start_time)
 
-          # Send trailing headers (trailers) with END_STREAM flag on HTTP/2
-          send(conn_pid, {{:send_headers, trailers, true}, stream_id})
-          conn
+          send_http2_final_headers(conn, trailers)
 
         _other ->
           body =
@@ -647,7 +666,7 @@ defmodule SimpleGrpc.Call do
       case conn.adapter do
         {Bandit.Adapter,
          %Bandit.Adapter{
-           transport: %Bandit.HTTP2.Stream{connection_pid: conn_pid, stream_id: stream_id}
+           transport: %Bandit.HTTP2.Stream{}
          }} ->
           conn =
             conn
@@ -658,9 +677,7 @@ defmodule SimpleGrpc.Call do
 
           {:ok, conn} = chunk(conn, framed_response)
 
-          # Send trailing headers (trailers) with END_STREAM flag on HTTP/2
-          send(conn_pid, {{:send_headers, trailers, true}, stream_id})
-          conn
+          send_http2_final_headers(conn, trailers)
 
         _other ->
           conn
@@ -768,12 +785,10 @@ defmodule SimpleGrpc.Call do
         end
 
       case conn.adapter do
-        {Bandit.Adapter,
-         %Bandit.Adapter{
-           transport: %Bandit.HTTP2.Stream{connection_pid: conn_pid, stream_id: stream_id}
-         }} ->
-          send(conn_pid, {{:send_headers, headers, true}, stream_id})
-          %{conn | state: :sent}
+        {Bandit.Adapter, %Bandit.Adapter{transport: %Bandit.HTTP2.Stream{}}} ->
+          # One HEADERS frame carrying END_STREAM: the gRPC "Trailers-Only" response. (Bandit's
+          # own send_resp would follow the headers with an empty DATA frame.)
+          send_http2_final_headers(conn, headers_or_trailers(conn, headers))
 
         _other ->
           conn_with_headers =
@@ -788,6 +803,38 @@ defmodule SimpleGrpc.Call do
           send_resp(conn_with_headers, 200, "")
       end
     end
+  end
+
+  # Once the response has started (a failure part-way through a stream) the status goes out as
+  # trailers, which must not carry pseudo-headers (RFC 9113 8.1) and have no use for the headers
+  # that already went out. The error handlers only hold the conn from before the response started,
+  # so that it has started is kept in the request process.
+  defp headers_or_trailers(_conn, headers) do
+    if Process.get(@response_started) do
+      Enum.filter(headers, fn {k, _} ->
+        k in ["grpc-status", "grpc-message", "grpc-status-details-bin"]
+      end)
+    else
+      headers
+    end
+  end
+
+  # Bandit has no API for HTTP/2 response trailers (or a headers-only response ending the
+  # stream), so a final HEADERS frame (with END_STREAM) is sent straight to the connection process. That bypasses the stream's own state, which
+  # would then still be open: once the plug returns, Bandit would end the stream a second time
+  # (an empty DATA frame after the trailers, a protocol error that gun treats as fatal for the
+  # whole connection). So the stream is moved to its closed state here as well, and the conn is
+  # marked sent, which leaves Bandit nothing more to write.
+  defp send_http2_final_headers(
+         %Plug.Conn{adapter: {Bandit.Adapter, %Bandit.Adapter{transport: stream} = adapter}} =
+           conn,
+         trailers
+       ) do
+    %Bandit.HTTP2.Stream{connection_pid: conn_pid, stream_id: stream_id, state: state} = stream
+    send(conn_pid, {{:send_headers, trailers, true}, stream_id})
+
+    closed = %{stream | state: if(state == :remote_closed, do: :closed, else: :local_closed)}
+    %{conn | state: :sent, adapter: {Bandit.Adapter, %{adapter | transport: closed}}}
   end
 
   defp read_grpc_frame(conn, acc, grpc_web_format) do
