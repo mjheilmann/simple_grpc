@@ -463,6 +463,31 @@ defmodule SimpleGrpc.Protobuf do
   def encode_repeated(_field, nil, _schema_ctx, _msg_desc), do: <<>>
   def encode_repeated(_field, [], _schema_ctx, _msg_desc), do: <<>>
 
+  # Enum values come from the field's own linked descriptor, so no schema context is needed
+  # (the compiled codec calls this with none).
+  def encode_repeated(
+        %Field{enum_desc: %Schema.Enum{} = enum_desc, is_packable: true} = field,
+        list,
+        _schema_ctx,
+        _msg_desc
+      )
+      when is_list(list) do
+    packed = Enum.map(list, &encode_varint(resolve_enum_value_to_integer(&1, enum_desc)))
+    [encode_tag(field.number, 2), encode_varint(IO.iodata_length(packed)), packed]
+  end
+
+  def encode_repeated(
+        %Field{enum_desc: %Schema.Enum{} = enum_desc, is_packable: false} = field,
+        list,
+        _schema_ctx,
+        _msg_desc
+      )
+      when is_list(list) do
+    tag = encode_tag(field.number, 0)
+
+    Enum.map(list, &[tag, encode_varint(resolve_enum_value_to_integer(&1, enum_desc))])
+  end
+
   def encode_repeated(%Field{is_packable: true} = field, list, schema_ctx, msg_desc)
       when is_list(list) do
     packed_bytes =
@@ -1269,6 +1294,15 @@ defmodule SimpleGrpc.Protobuf do
     wire_type = wire_type_for(type, schema_ctx, msg_desc)
     {item, rest} = decode_scalar_or_message(binary, wire_type, type, schema_ctx, msg_desc)
     [item | decode_packed_values(rest, type, schema_ctx, msg_desc)]
+  end
+
+  @doc false
+  # A packed run of enum varints, decoded with the field's own enum descriptor.
+  def decode_packed_enums(<<>>, _enum_desc), do: []
+
+  def decode_packed_enums(binary, %Schema.Enum{} = enum_desc) do
+    {val, rest} = decode_varint(binary)
+    [resolve_enum_integer_to_atom(val, enum_desc) | decode_packed_enums(rest, enum_desc)]
   end
 
   defp decode_packed_varints(<<>>), do: []
