@@ -1101,7 +1101,8 @@ defmodule SimpleGrpc.Compiler do
 
     quote do
       case unquote(val_ast) do
-        v when is_map(v) and map_size(v) > 0 ->
+        # a set empty message is present on the wire (tag + length 0); only nil is omitted
+        v when is_map(v) ->
           sub_bin = encode(unquote(sub_type), v)
 
           [
