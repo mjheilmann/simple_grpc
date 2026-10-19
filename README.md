@@ -58,7 +58,28 @@ end
 
 ### Running with Bandit / Plug
 
-Add `SimpleGrpc.Plug` to your application supervision tree:
+Serve each service with its own `SimpleGrpc.Plug.Service` and end the pipeline with
+`SimpleGrpc.Plug.NotFound`:
+
+```elixir
+defmodule MyApp.GrpcPipeline do
+  use Plug.Builder
+
+  plug SimpleGrpc.Plug.Service, server: MyApp.GreeterServer
+  plug SimpleGrpc.Plug.Service, server: MyApp.AdminServer, interceptors: [MyApp.AuditInterceptor]
+  plug SimpleGrpc.Plug.NotFound
+end
+
+children = [{Bandit, plug: MyApp.GrpcPipeline, port: 50051}]
+```
+
+A service plug handles only requests under its own `/<package>.<Service>/` prefix and lets
+everything else through, so services that share RPC names or messages never mix. Health,
+reflection, CORS and gRPC-Web are still configured on the older single plug below until they
+are split out the same way (see [docs/concepts.md](docs/concepts.md)).
+
+The older `SimpleGrpc.Plug`, which serves a list of services and registers them globally,
+still works but is superseded. Add it to your supervision tree:
 
 ```elixir
 # In application.ex or endpoint

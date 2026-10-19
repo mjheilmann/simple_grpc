@@ -270,6 +270,8 @@ defmodule SimpleGrpc.Server do
       unquote_splicing(callbacks_ast)
       @optional_callbacks unquote(optional_callbacks_list)
 
+      @behaviour SimpleGrpc.Service
+
       @__schema__ unquote(schema_escaped)
       @__grpc_rpcs__ unquote(rpcs_escaped)
       @__grpc_opts_handlers__ unquote(handlers_ast)
