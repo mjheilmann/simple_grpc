@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package shadow.lang;
+
+enum Language {
+  LANGUAGE_UNKNOWN = 0;
+  LANGUAGE_EN = 1;
+  LANGUAGE_VAI = 458;
+}

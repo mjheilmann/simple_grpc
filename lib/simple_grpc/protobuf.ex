@@ -317,6 +317,7 @@ defmodule SimpleGrpc.Protobuf do
          _msg_desc
        )
        when is_map(val) or is_list(val) do
+    sub_desc = current_descriptor(sub_desc, schema_ctx)
     payload = encode_fields(sub_desc.fields, val, schema_ctx, sub_desc)
     [tag || encode_tag(num, 2), encode_varint(IO.iodata_length(payload)), payload]
   end
@@ -878,7 +879,7 @@ defmodule SimpleGrpc.Protobuf do
        ) do
     {len, rest} = decode_varint(binary)
     <<sub_bytes::binary-size(^len), remaining::binary>> = rest
-    sub_decoded = decode!(sub_desc, sub_bytes, schema_ctx)
+    sub_decoded = decode!(current_descriptor(sub_desc, schema_ctx), sub_bytes, schema_ctx)
     {[sub_decoded], remaining}
   end
 
@@ -892,7 +893,7 @@ defmodule SimpleGrpc.Protobuf do
        ) do
     {len, rest} = decode_varint(binary)
     <<sub_bytes::binary-size(^len), remaining::binary>> = rest
-    sub_decoded = decode!(sub_desc, sub_bytes, schema_ctx)
+    sub_decoded = decode!(current_descriptor(sub_desc, schema_ctx), sub_bytes, schema_ctx)
     {sub_decoded, remaining}
   end
 
@@ -1799,6 +1800,15 @@ defmodule SimpleGrpc.Protobuf do
       throw({:error, "Module #{inspect(module)} does not implement protobuf __fields__/0"})
     end
   end
+
+  # The descriptor embedded in a field is a snapshot taken while linking, which can predate types
+  # defined in other files (a field typed as an enum from another file was once linked as a
+  # same-named nearby message). The schema's own entry for the message is the final one.
+  defp current_descriptor(%Message{full_name: name} = embedded, %Schema{messages: messages})
+       when is_binary(name),
+       do: Map.get(messages, name, embedded)
+
+  defp current_descriptor(embedded, _schema_ctx), do: embedded
 
   defp resolve_submessage_descriptor({:message, type_name}, schema_ctx) do
     resolve_submessage_descriptor(type_name, schema_ctx)
