@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package twosvc;
+
+// Two services in one file and package, sharing a message and both defining `Echo`.
+
+message Msg {
+  enum Level {
+    LOW = 0;
+    HIGH = 1;
+  }
+  string text = 1;
+  Level level = 2;
+}
+
+service Alpha {
+  rpc Echo(Msg) returns (Msg);
+  rpc OnlyAlpha(Msg) returns (Msg);
+  rpc Count(Msg) returns (stream Msg);
+  rpc Boom(Msg) returns (Msg);
+}
+
+service Beta {
+  rpc Echo(Msg) returns (Msg);
+  rpc OnlyBeta(Msg) returns (Msg);
+}
