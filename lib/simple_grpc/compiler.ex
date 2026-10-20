@@ -266,8 +266,12 @@ defmodule SimpleGrpc.Compiler do
   defp sub_message_name(_field, _schema), do: nil
 
   defp generate_field_decode_clauses(loop_fn, %Field{kind: :oneof, fields: subfields}, schema) do
+    names = Enum.map(subfields, & &1.name)
+
     Enum.flat_map(subfields, fn subfield ->
-      generate_field_decode_clauses(loop_fn, subfield, schema)
+      loop_fn
+      |> generate_field_decode_clauses(subfield, schema)
+      |> clear_oneof_siblings(subfield.name, names -- [subfield.name])
     end)
   end
 
@@ -339,7 +343,7 @@ defmodule SimpleGrpc.Compiler do
                        rest::binary>>,
                      acc
                    ) do
-                sub = decode(unquote(sub_type), sub_bytes)
+                sub = unquote(merged_submessage(quote(do: acc.unquote(field_name)), sub_type))
                 unquote(loop_fn)(rest, %{acc | unquote(field_name) => sub})
               end
             end,
@@ -347,7 +351,7 @@ defmodule SimpleGrpc.Compiler do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {len, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
                 <<sub_bytes::binary-size(^len), rest3::binary>> = rest2
-                sub = decode(unquote(sub_type), sub_bytes)
+                sub = unquote(merged_submessage(quote(do: acc.unquote(field_name)), sub_type))
                 unquote(loop_fn)(rest3, %{acc | unquote(field_name) => sub})
               end
             end
@@ -358,7 +362,7 @@ defmodule SimpleGrpc.Compiler do
               defp unquote(loop_fn)(<<unquote(tag_bytes)::binary, rest1::binary>>, acc) do
                 {len, rest2} = SimpleGrpc.Protobuf.decode_varint(rest1)
                 <<sub_bytes::binary-size(^len), rest3::binary>> = rest2
-                sub = decode(unquote(sub_type), sub_bytes)
+                sub = unquote(merged_submessage(quote(do: acc.unquote(field_name)), sub_type))
                 unquote(loop_fn)(rest3, %{acc | unquote(field_name) => sub})
               end
             end
@@ -835,6 +839,43 @@ defmodule SimpleGrpc.Compiler do
   end
 
   defp generate_field_decode_clauses(_loop_fn, _field, _schema), do: []
+
+  # Of several members of one oneof on the wire the last wins, so setting a member clears the
+  # others: every `%{acc | member => value}` in the member's clauses also resets its siblings.
+  defp clear_oneof_siblings(clauses, _member, []), do: clauses
+
+  defp clear_oneof_siblings(clauses, member, siblings) do
+    Macro.prewalk(clauses, fn
+      {:%{}, meta, [{:|, meta2, [{:acc, _, _} = acc, updates]}]} = node when is_list(updates) ->
+        if Keyword.has_key?(updates, member) do
+          {:%{}, meta, [{:|, meta2, [acc, updates ++ Enum.map(siblings, &{&1, nil})]}]}
+        else
+          node
+        end
+
+      node ->
+        node
+    end)
+  end
+
+  # A singular message field that appears again on the wire is merged into the value already
+  # decoded (scalars last-wins, repeated fields concatenate, nested messages and maps merge).
+  # Encoding the earlier value and decoding it together with the new bytes does exactly that,
+  # since concatenated messages are by definition their merge. Only the repeat pays for it.
+  defp merged_submessage(previous_ast, sub_type) do
+    quote do
+      case unquote(previous_ast) do
+        nil ->
+          decode(unquote(sub_type), sub_bytes)
+
+        previous ->
+          decode(
+            unquote(sub_type),
+            IO.iodata_to_binary(encode(unquote(sub_type), previous)) <> sub_bytes
+          )
+      end
+    end
+  end
 
   # proto3 strings must be valid UTF-8 (see `SimpleGrpc.Protobuf.valid_string!/2`).
   defp utf8_checked(str_ast, %{syntax: :proto2}), do: str_ast
