@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package emptymsg;
+
+// A message field that is set to an empty message is present on the wire (tag + length 0);
+// only an unset (nil) field is omitted.
+
+message Marker {}
+
+message Inner {
+  string name = 1;
+}
+
+message Outer {
+  Marker marker = 1;
+  Inner inner = 2;
+  repeated Marker markers = 3;
+  oneof choice {
+    Marker picked = 4;
+    string other = 5;
+  }
+  map<string, Marker> tagged = 6;
+}
+
+service Marking {
+  rpc Mark(Outer) returns (Outer);
+}

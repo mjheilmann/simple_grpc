@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package shadow.holder;
+
+import "shadowed_types/lang.proto";
+
+// `Language` is a message in this package and an enum in `shadow.lang`; `shadow.lang.Language`
+// must mean the enum even though a message called `Language` is nearby.
+message Language {
+  shadow.lang.Language locale = 1;
+  string label = 2;
+}
+
+message Holder {
+  Language language = 1;
+  repeated Language more = 2;
+}
+
+service Holding {
+  rpc Hold(Holder) returns (Holder);
+}
