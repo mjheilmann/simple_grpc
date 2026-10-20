@@ -455,7 +455,13 @@ defmodule SimpleGrpc.Protobuf do
     )
   end
 
-  defp encode_oneof(%Field{fields: oneof_fields}, data, schema_ctx, msg_desc) do
+  defp encode_oneof(%Field{fields: oneof_fields} = oneof, data, schema_ctx, msg_desc) do
+    ensure_single_oneof!(
+      data,
+      oneof.name,
+      Enum.map(oneof_fields, &{&1.name, Atom.to_string(&1.name)})
+    )
+
     Enum.find_value(oneof_fields, <<>>, fn subfield ->
       val = Map.get(data, subfield.name)
 
@@ -463,6 +469,28 @@ defmodule SimpleGrpc.Protobuf do
         encode_field_value(subfield, val, schema_ctx, msg_desc)
       end
     end) || <<>>
+  end
+
+  # A oneof holds at most one member. A plain map can say otherwise, and there is no "last set"
+  # to go by, so setting two is an error in the caller rather than something to pick between.
+  # `members` is a list of `{atom_name, string_name}`; returns `[]` so it can sit in the encoder's
+  # iodata.
+  @doc false
+  def ensure_single_oneof!(data, oneof, members),
+    do: ensure_single_oneof!(data, oneof, members, nil)
+
+  defp ensure_single_oneof!(_data, _oneof, [], _seen), do: []
+
+  defp ensure_single_oneof!(data, oneof, [{atom, string} | rest], seen) do
+    if is_nil(Map.get(data, atom)) and is_nil(Map.get(data, string)) do
+      ensure_single_oneof!(data, oneof, rest, seen)
+    else
+      if seen do
+        throw({:error, "oneof #{oneof} has more than one member set: #{seen} and #{atom}"})
+      end
+
+      ensure_single_oneof!(data, oneof, rest, atom)
+    end
   end
 
   @doc false
@@ -800,7 +828,7 @@ defmodule SimpleGrpc.Protobuf do
       %Field{} = field_desc ->
         if wire_type_matches?(field_desc, wire_type, schema_ctx, msg_desc) do
           {field_value, remaining} =
-            decode_field_value(rest, wire_type, field_desc, schema_ctx, msg_desc)
+            decode_field_value(rest, wire_type, field_desc, schema_ctx, msg_desc, acc)
 
           updated_acc = store_decoded_field(acc, field_desc, field_value, msg_desc)
           decode_wire_fields(remaining, msg_desc, schema_ctx, updated_acc)
@@ -841,6 +869,33 @@ defmodule SimpleGrpc.Protobuf do
       (wire_type == 2 and field.prefix == :repeated and expected != 2 and
          is_packable_type?(type, schema_ctx, msg_desc))
   end
+
+  # A singular message field that appears again is merged into the value already decoded (see
+  # `merged_submessage/1` in the compiler): the earlier value is encoded and decoded together
+  # with the new bytes.
+  defp decode_field_value(
+         binary,
+         2 = wire_type,
+         %Field{kind: kind, prefix: prefix, submessage_desc: %Message{} = sub_desc} = field,
+         schema_ctx,
+         msg_desc,
+         acc
+       )
+       when kind != :map and prefix != :repeated do
+    case Map.get(acc, field.name) do
+      nil ->
+        decode_field_value(binary, wire_type, field, schema_ctx, msg_desc)
+
+      previous ->
+        {len, rest} = decode_varint(binary)
+        <<sub_bytes::binary-size(^len), remaining::binary>> = rest
+        earlier = encode!(sub_desc, previous, schema_ctx)
+        {decode!(sub_desc, earlier <> sub_bytes, schema_ctx), remaining}
+    end
+  end
+
+  defp decode_field_value(binary, wire_type, field, schema_ctx, msg_desc, _acc),
+    do: decode_field_value(binary, wire_type, field, schema_ctx, msg_desc)
 
   # An entry without a value means the value type's default.
   defp map_value_type(%Field{submessage_desc: %Message{full_name: name}}) when is_binary(name),

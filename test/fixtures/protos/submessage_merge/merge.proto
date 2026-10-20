@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package merge;
+
+message Deep {
+  string a = 1;
+  string b = 2;
+}
+
+message Inner {
+  string body = 1;
+  int32 count = 2;
+  repeated string tags = 3;
+  Deep deep = 4;
+  map<string, string> labels = 5;
+}
+
+message Outer {
+  Inner inner = 1;
+  oneof pick {
+    Inner pick_inner = 2;
+    string pick_text = 3;
+  }
+  // tag number above 15: two-byte tag
+  Inner far_inner = 20;
+}
+
+service Merger {
+  rpc Echo(Outer) returns (Outer);
+}
