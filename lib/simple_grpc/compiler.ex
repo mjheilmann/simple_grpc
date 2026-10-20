@@ -884,7 +884,18 @@ defmodule SimpleGrpc.Compiler do
     quote do: SimpleGrpc.Protobuf.valid_string!(unquote(str_ast), nil)
   end
 
-  defp generate_field_encode_expr(%Field{kind: :oneof, fields: subfields}, schema) do
+  defp generate_field_encode_expr(%Field{kind: :oneof, fields: subfields} = oneof, schema) do
+    members = Enum.map(subfields, &{&1.name, Atom.to_string(&1.name)})
+
+    check =
+      quote do
+        SimpleGrpc.Protobuf.ensure_single_oneof!(
+          data,
+          unquote(oneof.name),
+          unquote(Macro.escape(members))
+        )
+      end
+
     branches =
       Enum.map(subfields, fn subfield ->
         name_atom = subfield.name
@@ -900,7 +911,7 @@ defmodule SimpleGrpc.Compiler do
         end
       end)
 
-    branches
+    [check | branches]
   end
 
   defp generate_field_encode_expr(%Field{prefix: :repeated} = field, schema) do

@@ -103,6 +103,41 @@ defmodule SimpleGrpc.SubmessageMergeTest do
         assert back.pick_text in [nil, ""]
       end
 
+      test "encoding more than one member of a oneof is an error", %{codecs: codecs} do
+        schema = codecs[unquote(codec)]
+
+        assert {:error, 13, _} =
+                 Protobuf.encode(
+                   "merge.Outer",
+                   %{pick_inner: %{body: "b"}, pick_text: "t"},
+                   schema
+                 )
+
+        assert catch_throw(
+                 Protobuf.encode!(
+                   "merge.Outer",
+                   %{pick_inner: %{body: "b"}, pick_text: "t"},
+                   schema
+                 )
+               ) == {:error, "oneof pick has more than one member set: pick_inner and pick_text"}
+
+        # string keys count too
+        assert {:error, 13, _} =
+                 Protobuf.encode(
+                   "merge.Outer",
+                   %{"pick_inner" => %{}, "pick_text" => "t"},
+                   schema
+                 )
+
+        # one member, or none, or an explicit nil next to the one that is set, is fine
+        assert {:ok, _} = Protobuf.encode("merge.Outer", %{pick_text: "t"}, schema)
+
+        assert {:ok, _} =
+                 Protobuf.encode("merge.Outer", %{pick_text: "t", pick_inner: nil}, schema)
+
+        assert {:ok, _} = Protobuf.encode("merge.Outer", %{inner: %{body: "b"}}, schema)
+      end
+
       test "a single occurrence is unchanged", %{codecs: codecs} do
         schema = codecs[unquote(codec)]
 

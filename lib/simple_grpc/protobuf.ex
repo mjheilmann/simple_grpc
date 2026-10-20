@@ -455,7 +455,13 @@ defmodule SimpleGrpc.Protobuf do
     )
   end
 
-  defp encode_oneof(%Field{fields: oneof_fields}, data, schema_ctx, msg_desc) do
+  defp encode_oneof(%Field{fields: oneof_fields} = oneof, data, schema_ctx, msg_desc) do
+    ensure_single_oneof!(
+      data,
+      oneof.name,
+      Enum.map(oneof_fields, &{&1.name, Atom.to_string(&1.name)})
+    )
+
     Enum.find_value(oneof_fields, <<>>, fn subfield ->
       val = Map.get(data, subfield.name)
 
@@ -463,6 +469,28 @@ defmodule SimpleGrpc.Protobuf do
         encode_field_value(subfield, val, schema_ctx, msg_desc)
       end
     end) || <<>>
+  end
+
+  # A oneof holds at most one member. A plain map can say otherwise, and there is no "last set"
+  # to go by, so setting two is an error in the caller rather than something to pick between.
+  # `members` is a list of `{atom_name, string_name}`; returns `[]` so it can sit in the encoder's
+  # iodata.
+  @doc false
+  def ensure_single_oneof!(data, oneof, members),
+    do: ensure_single_oneof!(data, oneof, members, nil)
+
+  defp ensure_single_oneof!(_data, _oneof, [], _seen), do: []
+
+  defp ensure_single_oneof!(data, oneof, [{atom, string} | rest], seen) do
+    if is_nil(Map.get(data, atom)) and is_nil(Map.get(data, string)) do
+      ensure_single_oneof!(data, oneof, rest, seen)
+    else
+      if seen do
+        throw({:error, "oneof #{oneof} has more than one member set: #{seen} and #{atom}"})
+      end
+
+      ensure_single_oneof!(data, oneof, rest, atom)
+    end
   end
 
   @doc false
